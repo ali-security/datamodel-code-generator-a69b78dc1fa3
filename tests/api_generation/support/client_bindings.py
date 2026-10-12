@@ -33,7 +33,7 @@ from datamodel_code_generator import generate
 from tests.api_generation.support.client_generation import client_cyclic_metadata_report, model_config, render_client
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator, Iterator
 
     from tests.api_generation.support.client_generation import Modules
 
@@ -250,7 +250,7 @@ def client_binding_report(
 
 @pytest.mark.abnormal_path("Another process rewriting the staged models cannot be timed from outside.")
 @contextmanager
-def _rewritten_stage(old: str, new: str) -> Iterator[None]:
+def _rewritten_stage(old: str, new: str) -> Generator[None, None, None]:
     """Replace text in staged models whenever they are read, as a process rewriting the staging directory would."""
     read_bytes = Path.read_bytes
 
