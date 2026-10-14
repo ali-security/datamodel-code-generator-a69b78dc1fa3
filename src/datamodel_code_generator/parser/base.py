@@ -3442,8 +3442,11 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         """Make class names unique within a module.
 
         Renames change the rendered type hints of referencing models, so cached dedup keys of the
-        module are dropped whenever a model is renamed.
+        module are dropped whenever a model is renamed. Models of typed map values come last, so the other
+        models keep the names they had before values were typed.
         """
+        if typed_map_values := self._typed_map_value_reference_ids:
+            models = sorted(models, key=lambda model: id(model.reference) in typed_map_values)
         scoped_model_resolver = ModelResolver(
             exclude_names={i.alias or i.import_ for m in models for i in m.imports},
             duplicate_name_suffix="Model",
