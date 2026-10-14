@@ -1211,8 +1211,11 @@ def has_lookaround_pattern(
     if _visited is None:
         _visited = set()
     for field in fields:
-        pattern = isinstance(field.constraints, Constraints) and field.constraints.pattern
-        if pattern and _needs_python_regex_engine(pattern, field.data_type, field.parent):
+        if (
+            (pattern := isinstance(field.constraints, Constraints) and field.constraints.pattern)
+            and (include_compiled or not isinstance(field.extras.get(_COMPILED_PATTERN_KEY), PythonRuntimeExpression))
+            and _needs_python_regex_engine(pattern, field.data_type, field.parent)
+        ):
             return True
         for data_type in field.data_type.all_data_types:
             pattern = (data_type.kwargs or {}).get("pattern")
