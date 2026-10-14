@@ -568,6 +568,8 @@ class ParserRunContext:
     formatter_cwd: Path | None = None
     preserve_circular_root_models: bool = False
     suppress_parse_warnings: bool = False
+    untyped_nullable_maps: bool = False
+    yielding_names: tuple[tuple[str, tuple[str, str | None]], ...] = ()
 
 
 _DEFAULT_PARSER_RUN_CONTEXT = ParserRunContext()
@@ -2580,6 +2582,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
     _config_class_name: ClassVar[str] = "ParserConfig"
     _cache_local_sources_during_parse: ClassVar[bool] = False
     _cache_parsed_sources_from_path: ClassVar[bool] = False
+    _collapses_list_item_root_models: ClassVar[bool] = True
     _http_fetch_session: _HTTPFetchSession | None = None
 
     @property
@@ -2587,7 +2590,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         """Return the immutable settings for the current facade-managed run."""
         return self._run_context or _DEFAULT_PARSER_RUN_CONTEXT
 
-    def configure_run_context(
+    def configure_run_context(  # noqa: PLR0913
         self,
         *,
         diagnostic_source_path: Path | None = None,
@@ -2595,24 +2598,21 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         formatter_cwd: Path | None = None,
         preserve_circular_root_models: bool = False,
         suppress_parse_warnings: bool = False,
+        untyped_nullable_maps: bool = False,
+        yielding_names: tuple[tuple[str, tuple[str, str | None]], ...] = (),
     ) -> None:
         """Configure parser run state without exposing implementation attributes."""
-        if (
-            diagnostic_source_path is None
-            and prefetched_source is None
-            and formatter_cwd is None
-            and not preserve_circular_root_models
-            and not suppress_parse_warnings
-        ):
-            self._run_context = None
-            return
-        self._run_context = ParserRunContext(
+        context = ParserRunContext(
             diagnostic_source_path=diagnostic_source_path,
             prefetched_source=prefetched_source,
             formatter_cwd=formatter_cwd,
             preserve_circular_root_models=preserve_circular_root_models,
             suppress_parse_warnings=suppress_parse_warnings,
+            untyped_nullable_maps=untyped_nullable_maps,
+            yielding_names=yielding_names,
         )
+        self._run_context = None if context == _DEFAULT_PARSER_RUN_CONTEXT else context
+        self.model_resolver.assigned_yielding_names = dict(yielding_names)
 
     def _configure_legacy_run_context_attribute(self, attribute: str, value: object) -> None:
         """Keep historical private state writes as a parser-local compatibility facade."""
@@ -2633,6 +2633,8 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             preserve_circular_root_models=preserve_circular_root_models,
             suppress_parse_warnings=context.suppress_parse_warnings,
             prefetched_source=context.prefetched_source,
+            untyped_nullable_maps=context.untyped_nullable_maps,
+            yielding_names=context.yielding_names,
         )
 
     @property
@@ -2817,6 +2819,12 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         self._decimal_default_warning_examples: list[str] | None = None
         self._data_model_field_common_kwargs_cache: dict[str, Any] = {"use_missing_sentinel": self.use_missing_sentinel}
         self.reuse_model: bool = config.reuse_model
+        self._typed_map_value_reference_ids: set[int] = set()
+        self.typed_nullable_maps = False
+        self.yielding_names_to_assign: tuple[tuple[str, tuple[str, str | None]], ...] = ()
+        self.typed_nullable_map_reference_ids: set[int] = set()
+        self.typed_map_values_may_move_models = False
+        self.model_placement: dict[ModulePath, frozenset[str]] = {}
         self.reuse_scope: ReuseScope | None = config.reuse_scope
         self.shared_module_name: str = config.shared_module_name
         self.encoding: str = self._source_context.encoding
@@ -3421,7 +3429,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                         (canonical, dup)
                         for group in content_key_to_models.values()
                         if len(group) > 1
-                        for canonical, dup in _iter_matching_duplicates(group, shapes)
+                        for canonical, dup in _iter_matching_duplicates(self._typed_map_values_last(group), shapes)
                         if dup not in models_to_remove
                     ]
                 ):
@@ -3440,12 +3448,34 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         if models_to_remove:
             models[:] = [m for m in models if m not in models_to_remove]
 
+    def _names_have_class_keyed_options(self, names: set[str]) -> bool:
+        """Return whether an option keyed by class name, or by a class-scoped field, names one of ``names``.
+
+        These options are looked up while models are created, under the names models have then.
+        """
+        config = self.config
+        class_keys = {*(config.base_class_map or ()), *(config.extra_template_data or ()), *(config.validators or ())}
+        scoped_keys = (
+            *(config.aliases or ()),
+            *(config.serialization_aliases or ()),
+            *(config.default_value_overrides or ()),
+        )
+        return bool(names & class_keys) or any(key.rpartition(".")[0] in names for key in scoped_keys)
+
+    def _typed_map_values_last(self, models: list[DataModel]) -> list[DataModel]:
+        """Order models of typed map values after the others, so the others stay canonical and keep their names."""
+        if typed_map_values := self._typed_map_value_reference_ids:
+            return sorted(models, key=lambda model: id(model.reference) in typed_map_values)
+        return models
+
     def __replace_duplicate_name_in_module(self, models: list[DataModel]) -> None:
         """Make class names unique within a module.
 
         Renames change the rendered type hints of referencing models, so cached dedup keys of the
-        module are dropped whenever a model is renamed.
+        module are dropped whenever a model is renamed. Models of typed map values come last, so the other
+        models keep the names they had before values were typed.
         """
+        models = self._typed_map_values_last(models)
         scoped_model_resolver = ModelResolver(
             exclude_names={i.alias or i.import_ for m in models for i in m.imports},
             duplicate_name_suffix="Model",
@@ -4051,9 +4081,18 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             for model in self._reuse_optimization_context.eligible_models(models.copy())
             if not (self.collapse_root_models and self._is_root_model(model))
         )
-        for cached_model, model in _iter_matching_duplicates(reuse_candidates, {}, lambda item: item.get_dedup_key()):
+        typed_map_values = self._typed_map_value_reference_ids
+        canonical_models: dict[int, DataModel] = {}
+        for first_model, duplicate_model in _iter_matching_duplicates(
+            reuse_candidates, {}, lambda item: item.get_dedup_key()
+        ):
+            cached_model = canonical_models.get(id(first_model), first_model)
+            model = duplicate_model
+            if id(cached_model.reference) in typed_map_values and id(model.reference) not in typed_map_values:
+                cached_model, model = model, cached_model
+                canonical_models[id(first_model)] = cached_model
             cached_model_reference = cached_model.reference
-            if isinstance(model, Enum) or self.collapse_reuse_models:
+            if isinstance(model, Enum) or self.collapse_reuse_models or id(model.reference) in typed_map_values:
                 self.generation_store.redirect_model_reference_users(model, models, cached_model_reference)
                 duplicates.append(model)
             else:
@@ -4082,8 +4121,31 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         }
         return [
             (model_modules[model], model, model_modules[canonical], canonical)
-            for canonical, model in _iter_matching_duplicates(model_modules, {}, lambda model: model.get_dedup_key())
+            for canonical, model in _iter_matching_duplicates(
+                self._typed_map_values_last(list(model_modules)), {}, lambda model: model.get_dedup_key()
+            )
         ]
+
+    def __replace_typed_map_value_duplicates(
+        self,
+        module_models: list[tuple[tuple[str, ...], list[DataModel]]],
+        duplicates: list[tuple[tuple[str, ...], DataModel, tuple[str, ...], DataModel]],
+    ) -> list[tuple[tuple[str, ...], DataModel, tuple[str, ...], DataModel]]:
+        """Replace typed map values by the other models they duplicate, leaving the rest to the shared module.
+
+        Those other models stay where they are, as they did before map values were typed.
+        """
+        typed_map_values = self._typed_map_value_reference_ids
+        module_lists = dict(module_models)
+        remaining = []
+        for duplicate in duplicates:
+            duplicate_module, duplicate_model, _, canonical = duplicate
+            if id(duplicate_model.reference) in typed_map_values and id(canonical.reference) not in typed_map_values:
+                self.generation_store.redirect_reference_users(duplicate_model.reference, canonical.reference)
+                module_lists[duplicate_module].remove(duplicate_model)
+            else:
+                remaining.append(duplicate)
+        return remaining
 
     def __validate_shared_module_name(
         self,
@@ -4193,6 +4255,8 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             return None
 
         duplicates = self.__find_duplicate_models_across_modules(module_models)
+        if self._typed_map_value_reference_ids:
+            duplicates = self.__replace_typed_map_value_duplicates(module_models, duplicates)
         if not duplicates:
             return None
 
@@ -4239,6 +4303,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         generation_index = generation_store.index
         circular_root_model_paths = getattr(self, "_circular_root_model_paths", ())
         is_root_model = self._is_root_model
+        collapses_list_item_root_models = self._collapses_list_item_root_models
 
         for model in models:  # noqa: PLR1702
             for model_field in model.fields:
@@ -4331,6 +4396,13 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                         if not has_remaining_root_references:
                             unused_models.append(root_type_model)
 
+                        continue
+
+                    if (
+                        not collapses_list_item_root_models
+                        and isinstance(list_data_type := data_type.parent, DataType)
+                        and list_data_type.is_list
+                    ):
                         continue
 
                     # set copied data_type
@@ -6595,7 +6667,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             defect_models.update(model for ctx in contexts for model in ctx.models)
         self.stdout_result_usable = not defect_models
         if self.forced_invalid_dotted_stdout_repair_modules:
-            self.generated_model_inventory = tuple(sorted(model.path for ctx in contexts for model in ctx.models))
+            self.generated_model_inventory = self._model_inventory([model for ctx in contexts for model in ctx.models])
             self.source_data_fingerprint = self._get_source_data_fingerprint()
             return
         if not defect_models or config.module_split_mode is not None:
@@ -6619,8 +6691,13 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         # The retry flattens every stdout model. Pass every non-canonical inferred
         # module so canonical modules reserve their existing names before any of them.
         self.invalid_dotted_stdout_repair_modules = tuple(sorted(invalid_modules))
-        self.generated_model_inventory = tuple(sorted(model.path for model in live_models))
+        self.generated_model_inventory = self._model_inventory(live_models)
         self.source_data_fingerprint = source_fingerprint
+
+    def _model_inventory(self, models: list[DataModel]) -> tuple[str, ...]:
+        """Return the paths of the models other than typed map values, which a retry with untyped values omits."""
+        typed_map_values = self._typed_map_value_reference_ids
+        return tuple(sorted(model.path for model in models if id(model.reference) not in typed_map_values))
 
     def _flatten_invalid_modules(
         self,
@@ -7568,6 +7645,9 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 self.parse_raw()
         finally:
             self._close_http_fetch_session()
+        self._typed_map_value_reference_ids = self.model_resolver.settle_yielding_names()
+        if (changes := self.model_resolver.yielding_name_changes) and self._names_have_class_keyed_options(changes):
+            self.yielding_names_to_assign = tuple(self.model_resolver.final_yielding_names.items())
         if suppress_parse_warnings:
             self._run_with_suppressed_warnings(self._report_parse_diagnostics)
         else:
@@ -7704,6 +7784,8 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             model_path_to_module_name=model_path_to_module_name,
         )
         self._finalize_modules(contexts, unused_models, model_to_module_models, module_to_import)
+        if self.typed_nullable_maps or self.run_context.untyped_nullable_maps:
+            self.__record_model_placement(contexts, bool(internal_modules))
         self._check_model_inheritance(contexts)
         self.__warn_about_decimal_defaults()
         if self.use_default_factory_for_optional_nested_models:
@@ -7723,6 +7805,40 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             config=config,
             forwarder_map=forwarder_map,
             require_update_action_models=require_update_action_models,
+        )
+
+    def __record_model_placement(
+        self,
+        contexts: list[ModuleContext],
+        has_internal_modules: bool,  # noqa: FBT001
+    ) -> None:
+        """Record where models other than typed map values are written, and whether the typed values could move them.
+
+        Typed map values move other models only through a module of their own, an internal module of an import
+        cycle, or a module shared by reused models, and keep a model only as a nullable map they make recursive,
+        which ``--collapse-root-models`` would otherwise collapse.
+        """
+        typed_map_values = self._typed_map_value_reference_ids
+        placement = {ctx.module: ctx.models for ctx in contexts}
+        self.model_placement = {
+            module: frozenset(model.class_name for model in models if id(model.reference) not in typed_map_values)
+            for module, models in placement.items()
+        }
+        self.typed_map_values_may_move_models = (
+            has_internal_modules
+            or (self.reuse_model and self.reuse_scope == ReuseScope.Tree)
+            or any(
+                models and all(id(model.reference) in typed_map_values for model in models)
+                for models in placement.values()
+            )
+            or (
+                self.collapse_root_models
+                and any(
+                    id(model.reference) in self.typed_nullable_map_reference_ids
+                    for models in placement.values()
+                    for model in models
+                )
+            )
         )
 
     def __render_modules(  # noqa: PLR0913
