@@ -10112,11 +10112,14 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
     def _parse_nullable_map(
         self, name: str, obj: JsonSchemaObject, path: list[str], additional_properties: JsonSchemaObject
     ) -> DataType:
-        """Parse a type array of object and null, keeping the value type of the map."""
-        return self.data_type(
-            data_types=[self._parse_additional_properties_map(name, obj, path, additional_properties)],
-            is_optional=obj.type_has_null,
-        )
+        """Parse a type array of object and null, keeping the value type of the map.
+
+        Models created for the values give way to every other model, so the names other models had before
+        typed values stay theirs.
+        """
+        with self.model_resolver.yielding_new_references():
+            map_type = self._parse_additional_properties_map(name, obj, path, additional_properties)
+        return self.data_type(data_types=[map_type], is_optional=obj.type_has_null)
 
     def _parse_constrained_additional_properties_value_item(
         self,

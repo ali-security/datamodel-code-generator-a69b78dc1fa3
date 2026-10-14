@@ -7568,6 +7568,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 self.parse_raw()
         finally:
             self._close_http_fetch_session()
+        self.model_resolver.settle_yielding_names()
         if suppress_parse_warnings:
             self._run_with_suppressed_warnings(self._report_parse_diagnostics)
         else:

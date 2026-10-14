@@ -3626,6 +3626,36 @@ def test_main_openapi_nullable_map_value_types_parameters_scope(output_file: Pat
     )
 
 
+@pytest.mark.parametrize(
+    ("output_model_type", "expected_directory"),
+    [
+        pytest.param(DataModelType.PydanticV2BaseModel.value, "pydantic_v2", id="pydantic-v2"),
+        pytest.param(DataModelType.PydanticV2Dataclass.value, "pydantic_v2_dataclass", id="pydantic-v2-dataclass"),
+        pytest.param(DataModelType.DataclassesDataclass.value, "dataclass", id="dataclass"),
+        pytest.param(DataModelType.TypingTypedDict.value, "typed_dict", id="typed-dict"),
+        pytest.param(DataModelType.MsgspecStruct.value, "msgspec", id="msgspec"),
+    ],
+)
+def test_main_openapi_nullable_map_value_names(
+    output_dir: Path, output_model_type: str, expected_directory: str
+) -> None:
+    """Keep the names of nullable maps and of later models, and name the map value models after them."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_names.yaml",
+        output_path=output_dir,
+        input_file_type="openapi",
+        expected_directory=EXPECTED_OPENAPI_PATH / "nullable_map_value_names" / expected_directory,
+        extra_args=[
+            "--output-model-type",
+            output_model_type,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
 def test_main_openapi_ref_nullable_strict_nullable(output_file: Path) -> None:
     """Test that nullable attribute from $ref schema is propagated."""
     run_main_and_assert(
