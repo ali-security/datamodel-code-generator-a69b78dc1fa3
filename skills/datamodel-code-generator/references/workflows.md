@@ -61,7 +61,7 @@ uvx datamodel-codegen \
   --server-model-package app.models
 ```
 
-Generation overwrites the models and the server package on every run: never edit them. Write the implementation of each router group in `app/services/<group>.py`, as class `<Group>` subclassing the `<Group>Service` Protocol of `app.server.services`; generation writes each missing module once with stubs and never overwrites it. `app/server/main.py` imports them and defines `app`. The run prints the `uv add` command for the runtime dependencies and the next steps; `--output-format json` reports them under `target`.
+Generation overwrites the models and the server package on every run: never edit them. Write the implementation of each router group in `app/services/<group>.py`, as class `<Group>` subclassing the `<Group>Service` Protocol of `app.server.services`; with `--server-layout single`, write `app/services/service.py` with class `Operations` subclassing the `Service` Protocol. A secured document adds `app/services/authorize.py` with `authorize`. Generation writes each missing module once with stubs and never overwrites it. Give each server package a parent package of its own. `app/server/main.py` imports them and defines `app`. The run prints the `uv add` command for the runtime dependencies and the next steps; `--output-format json` reports them under `target`.
 
 For a client, use `--generate-client httpx2 --client-output app/client --client-package app.client --client-model-package app.models` instead, and call it as `with Client(base_url=...) as client: client.<group>.<method>(...)`.
 
