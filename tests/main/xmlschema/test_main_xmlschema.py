@@ -1061,6 +1061,40 @@ def test_xmlschema_pattern_alternatives(
         )
 
 
+def test_xmlschema_compiled_pattern_alias_without_regex_engine(output_file: Path) -> None:
+    """Leave ``regex_engine`` off the models that use a type alias whose XSD pattern is already compiled.
+
+    Targets before Pydantic 2.8 keep JSON Schema patterns as strings in type aliases, so their users select the
+    engine. Combined XSD patterns are compiled for every target, ``2`` included, so they need Pydantic 2.8, from which
+    they validate without a config.
+    """
+    run_main_and_assert(
+        input_path=XML_SCHEMA_DATA_PATH / "pattern_alternatives_simple.xsd",
+        output_path=output_file,
+        input_file_type="xmlschema",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+            "--use-type-alias",
+            "--target-pydantic-version",
+            "2",
+            "--target-python-version",
+            "3.10",
+            "--disable-timestamp",
+        ],
+        assert_func=assert_file_content,
+        expected_file="pattern_alternatives_simple_pydantic_type_alias.py",
+    )
+    assert_generated_model_json_validation(
+        output_file,
+        module_name="generated_pattern_alternatives_simple_type_alias",
+        model_name="Root",
+        valid_json=json.dumps({"value": "ABC"}),
+        invalid_json=json.dumps({"value": "ABC\n"}),
+        expected_error_type="string_pattern_mismatch",
+    )
+
+
 @pytest.mark.parametrize(
     ("name", "backend", "extra_args"),
     [
