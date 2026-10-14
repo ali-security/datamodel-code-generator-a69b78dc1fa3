@@ -18,9 +18,21 @@ if TYPE_CHECKING:
 
 
 def document() -> dict[str, Any]:
-    """Return a new copy of the source document, read from `openapi.json` beside this module."""
-    source = files(__name__.rpartition(".")[0]) / "openapi.json"
-    loaded: dict[str, Any] = json.loads(source.read_text(encoding="utf-8"))
+    """Return a new copy of the source document, read from `openapi.json` beside this module.
+
+    A build that left the file out of the package fails here, on the document's first request.
+    """
+    package = __name__.rpartition(".")[0]
+    try:
+        text = (files(package) / "openapi.json").read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        msg = (
+            f"openapi.json of {package} is missing: include _generated/openapi.json"
+            " as package data when building the package, such as with setuptools"
+            " package-data or MANIFEST.in"
+        )
+        raise FileNotFoundError(msg) from error
+    loaded: dict[str, Any] = json.loads(text)
     return loaded
 
 

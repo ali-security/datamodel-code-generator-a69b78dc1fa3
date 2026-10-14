@@ -13163,10 +13163,12 @@ operation as a separate alternative, since FastAPI cannot document a requirement
 
 `create_app` serves the source document, not one FastAPI builds: generation writes the part of it the selected
 paths use into `server/_generated/openapi.json`, and the application reads it on the first request for
-`/openapi.json` and keeps it. The file is package data: Hatchling and uv_build include it in a distribution by
-default, while setuptools needs it in `package-data`. The document keeps the source's OpenAPI version, `info`,
-`servers`, `tags`, security schemes, webhooks, and the selected paths with all their operations as they are
-declared, callbacks included; the callbacks and webhooks are documentation only, with no routes or service methods.
+`/openapi.json` and keeps it. The file is package data: Hatchling, uv_build, poetry-core, pdm-backend, and
+flit_core include it in a distribution by default, while setuptools needs it in `package-data` or `MANIFEST.in`; a
+distribution without it answers the document's first request with an error that says so. The document keeps the
+source's OpenAPI version, `info`, `servers`, `tags`, security schemes, webhooks, and the selected paths with all
+their operations as they are declared, callbacks included; the callbacks and webhooks are documentation only, with
+no routes or service methods.
 
 Components stay when something kept references them, and so do the `allOf` subtypes of a kept discriminator base.
 What a reference names in another loaded document, or in a path that is left out, joins the components of the
