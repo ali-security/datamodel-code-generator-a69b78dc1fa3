@@ -365,8 +365,9 @@ stderr prints: `readme`, the path of the package README; for a server,
 `entrypoint` (`app`, the import string of the application in `main.py`, and
 `path`) and `implementation`, one entry for each module of yours that `main.py`
 imports (`module`, `name`, `path`, and `created`, true when the run wrote it with
-stubs); and for a client, `usage`, code that calls its first operation. Its paths
-are relative like those of `files`.
+stubs, and whose `path` names the `__init__.py` of a module you made a package);
+and for a client, `usage`, code that calls its first operation. Its paths are
+relative like those of `files`.
 
 Use `--output-format json` with `--generate-prompt` to emit structured option
 metadata instead of Markdown. Use `--output-format-json-schema` when an LLM

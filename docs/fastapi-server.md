@@ -197,17 +197,18 @@ next steps:
 ```text
 Add the runtime dependencies of server to your project:
   uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16"
-Next steps: implement services/pets.py (created), then run the server:
+Next steps: implement the stubs in services/pets.py, then run the server:
   uv add uvicorn && uv run uvicorn server.main:app --reload
-or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+See server/README.md.
 ```
 
 <!-- fmt: on -->
 <!-- END AUTO-GENERATED DOC EXAMPLE: fastapi-server.tutorial.notice -->
 
-Run the `uv add` command. It names only the minimum version of each package, so uv adds the latest release, and it
-grows with what the document uses: `python-multipart` for forms, `email-validator` for `format: email`, and `python-ulid` for
-`format: ulid`. An explicit `--target-pydantic-version` older than the `pydantic` minimum (`2`, `2.11` or `2.12`) is
+Run the `uv add` command. It names only the minimum version of each package, so uv adds the latest release, and
+it grows with what the document uses: `python-multipart` for forms, `email-validator` for `format: email`, and
+`python-ulid` for `format: ulid`. An explicit `--target-pydantic-version` older than the `pydantic` minimum (`2`, `2.11` or `2.12`) is
 refused with `Error:` and exit code 2; leave it unset or use `2.14`, which `--use-missing-sentinel` requires (see
 [Requirements](#requirements)).
 
@@ -374,10 +375,14 @@ uv add uvicorn
 uv run uvicorn server.main:app --reload
 ```
 
-`fastapi dev server/main.py` runs it too, with `fastapi[standard]` installed. A missing `services` module or class
-stops the start with an `ImportError` that names the file to write; an import error inside your module, such as a
-missing dependency, is raised as it is. A method whose signature cannot take the keyword arguments of its operation
-stops the start with a `TypeError` that names the class, the method, and the argument.
+Run it from the directory that holds the top-level package; for a `src` layout, add `--app-dir src`. FastAPI's own
+command runs it too, after `uv add "fastapi[standard]"`: `uv run fastapi dev server/main.py`.
+
+A missing `services` module or class stops the start with an `ImportError` that names the file to write where it
+belongs, a package's `__init__.py` for a group you implement as a package; an import error inside your module, such
+as a missing dependency, is raised as it is. A method whose signature cannot take the keyword arguments of its
+operation stops the start with a `TypeError` that names the class, the method, and the argument; the check reads the
+method's own signature, not that of a function a decorator wraps, and leaves its annotations unevaluated.
 
 Open <http://127.0.0.1:8000/docs>. The page shows your `openapi.yaml`, not a document FastAPI derives from the
 routes: the application serves the parts of the source document its operations use, the *served document*, at
@@ -804,9 +809,10 @@ FastAPI reads forms with `python-multipart`, which the dependency notice adds fo
 ```text
 Add the runtime dependencies of server to your project:
   uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16" "python-multipart>=0.0.32"
-Next steps: implement services/photos.py (created), services/authorize.py (created), then run the server:
+Next steps: implement the stubs in services/photos.py, services/authorize.py, then run the server:
   uv add uvicorn && uv run uvicorn server.main:app --reload
-or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+See server/README.md.
 ```
 
 <!-- fmt: on -->
@@ -1191,9 +1197,10 @@ job cannot share its `output`. The server jobs of a batch write one generation t
 
 The batch publishes the server packages together with the models of every job once all jobs succeed, and publishes
 nothing when a job fails or when jobs generate different models for a shared `output`; the `uv add` notice and the
-next steps of each package follow the publication on stderr. Server packages in the same directory share its
-`services` package, and the first job writes a module they both need. `--check` compares every job as a single run does and exits with 1 when
-any of them would change. With `--output-format json`, a server job adds the generation or check payload of a single
+next steps of each package follow the publication on stderr. A parent package holds one server: two server jobs
+whose packages share a directory would import their implementations from one `services` module, so the batch refuses
+them and writes nothing. `--check` compares every job as a single run does and exits with 1 when any of them would
+change. With `--output-format json`, a server job adds the generation or check payload of a single
 server run to the batch document, with file paths relative to that job's model output directory. `--all-jobs
 --watch` regenerates the batch, server jobs included, whenever an input any job read changes.
 
@@ -1211,7 +1218,10 @@ server run to the batch document, with file paths relative to that job's model o
 
 Keep the service implementations and the `authorize` callback in the `services` package beside the server package,
 which `main.py` imports: `services` beside `server`, `app/services` for `--server-package app.server`, written by
-generation only while a module is missing. An application of your own, such as one with a `lifespan`, also belongs
+generation only while a module is missing. Each stub names the server package it was written for. The `services`
+package belongs to one server: give each server package a parent package of its own. Generation refuses a module
+named `services.py` beside the server package, a module of yours or the models, since Python would import only one
+of it and the `services` package. An application of your own, such as one with a `lifespan`, also belongs
 outside the package and calls `create_app` itself. `--check` treats every `.py` file under `--server-output` as
 generated, lists a file that is no longer generated as an extra file, and a file at a path the package needs is
 overwritten.
@@ -1577,7 +1587,7 @@ module's import block:
 | `implementation.jinja2` | `imports`, `protocol`, `services`, `entrypoint`, `name`, `base`, `methods`, `protocol_methods` |
 | `main.jinja2` | `imports`, `app`, `services`, `implementations`, `missing`, `table`, `create_app`, `arguments` |
 | `openapi.jinja2` | none |
-| `readme.jinja2` | `title`, `package`, `model_package`, `backend`, `operations`, `services`, `protocols`, `services_package`, `owned`, `app`, `main`, `arguments`, `schemes`, `forms`, `raw_request` |
+| `readme.jinja2` | `title`, `package`, `model_package`, `backend`, `operations`, `services`, `protocols`, `services_package`, `owned`, `app`, `arguments`, `schemes`, `forms`, `raw_request` |
 | `router.jinja2` | `imports`, `docstring`, `routes`, `api_router`, `wiring`, `final`, `literal`, `templated`, `builder`, `group`, `build`, `services`, `settings` |
 | `security.jinja2` | `imports`, `schemes`, `exports` |
 | `services.jinja2` | `imports`, `typevar`, `abstract`, `protocol_type`, `protocols` |

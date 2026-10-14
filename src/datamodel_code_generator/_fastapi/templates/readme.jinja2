@@ -12,16 +12,18 @@ Custom templates, base classes, and Python types stay within these two backends.
 {% if owned %}
 `main.py` serves the application: it imports your implementation of each router group{% if schemes %} and your `authorize` function{% endif %} from the `{{ services_package }}` package beside this package, and passes them to `create_app`.
 Generation writes each of these modules that is missing, with a stub for each method that raises `NotImplementedError`, and never overwrites or deletes one.
+The `services` package belongs to this server alone: put another server package under a parent package of its own.
 
-| Module | Defines |
-| --- | --- |
+| Module | File | Defines |
+| --- | --- | --- |
 {%- for item in owned %}
-| `{{ item.file }}` | {% if item.protocol %}`class {{ item.name }}({{ item.protocol }})`{% else %}`def authorize(requirement_sets, credentials)`{% endif %} |
+| `{{ item.module }}` | `{{ item.file }}` | {% if item.base %}`class {{ item.name }}({{ item.base }})`{% else %}`def authorize(requirement_sets, credentials)`{% endif %} |
 {%- endfor %}
 
-Replace each stub with your code, then run the application with an ASGI server:
+The file paths are relative to this README.
+Replace each stub with your code, then run the application with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 {%- else %}
-`main.py` serves the application of `create_app`; run it with an ASGI server:
+`main.py` serves the application of `create_app`; run it with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 {%- endif %}
 
 ```console
@@ -29,11 +31,11 @@ uv add uvicorn
 uv run uvicorn {{ app }} --reload
 ```
 
-`fastapi dev {{ main }}` runs it too, with `fastapi[standard]` installed.
+`fastapi dev` runs it too: `uv add "fastapi[standard]"`, then `uv run fastapi dev` with the path of `main.py`, beside this README.
 To pass other instances, such as fakes in tests, call `create_app` yourself; see [Implementing the services](#implementing-the-services).
 {%- for item in owned %}
 
-### `{{ item.file }}`
+### `{{ item.module }}`
 
 ```python
 {{ item.stub }}

@@ -8,7 +8,7 @@ from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Final
 
-from datamodel_code_generator._api_generation import RenderedFile
+from datamodel_code_generator._api_generation import RenderedFile, implementation_text
 from datamodel_code_generator._api_types import Implementation, NextSteps
 from datamodel_code_generator._fastapi._compiled_templates import application as application_template
 from datamodel_code_generator._fastapi._compiled_templates import authorize as authorize_template
@@ -509,26 +509,36 @@ class Scheme:
 class Owned:
     """One module of the user's that `main.py` imports: the class of a group, or the authorize function.
 
-    `keyword` passes it to `create_app`, `protocol` is the Protocol a class implements, none for the function, and
-    `alias` is its name in `main.py`.
+    `keyword` passes it to `create_app`, `base` is the class a class implements, none for the function, `alias` is its
+    name in `main.py`, and `source` is the stub generation writes while the module is missing.
     """
 
     module: str
     name: str
     alias: str
     keyword: str
-    protocol: str
-    stub: str
-
-    @property
-    def file(self) -> str:
-        """Return the module's file relative to the directory that holds its top-level package."""
-        return f"{self.module.replace('.', '/')}.py"
+    base: str
+    source: str
 
     @property
     def stem(self) -> str:
         """Return the module's name within its package."""
         return self.module.rpartition(".")[2]
+
+    @property
+    def path(self) -> PurePosixPath:
+        """Return the module's file relative to the directory that holds the server package."""
+        return PurePosixPath("services", f"{self.stem}.py")
+
+    @property
+    def file(self) -> str:
+        """Return the module's file relative to the server package, where its README is."""
+        return f"../{self.path}"
+
+    @property
+    def stub(self) -> str:
+        """Return the stub as generation writes it, formatted like the other generated modules."""
+        return implementation_text(self.path)
 
 
 class ServerRenderer:  # ruff: ignore[too-many-public-methods]
@@ -609,12 +619,12 @@ class ServerRenderer:  # ruff: ignore[too-many-public-methods]
         for group in self.plan.groups:
             name = _implementation(group)
             taken.add(alias := _unique(name, taken))
-            module = f"{services}.{group.stem}"
-            stub = self.stub(group, name).render(self.role).rstrip("\n")
-            owned.append(Owned(module, name, alias, group.stem, group.service, stub))
+            base = f"{group.service}[object]" if group.secured else group.service
+            source = self.stub(group, name).render(self.role)
+            owned.append(Owned(f"{services}.{group.stem}", name, alias, group.stem, base, source))
         if self.plan.schemes:
-            stub = self.authorize_stub().render(self.role).rstrip("\n")
-            owned.append(Owned(f"{services}.authorize", "authorize", "authorize", "authorize", "", stub))
+            source = self.authorize_stub().render(self.role)
+            owned.append(Owned(f"{services}.authorize", "authorize", "authorize", "authorize", "", source))
         return tuple(owned)
 
     def stub(self, group: GroupSpec, name: str) -> Templated:
@@ -634,7 +644,7 @@ class ServerRenderer:  # ruff: ignore[too-many-public-methods]
             entrypoint=f"{package}.main",
             name=name,
             base=f"{protocol}[object]" if group.secured else protocol,
-            methods=_listed([f"`{spec.python_name}`" for spec in group.operations]),
+            methods="every operation" if self.config.layout == "single" else f"the {group.stem} operations",
             protocol_methods=[self.method(module, spec, "object") for spec in group.operations],
             imports=module.imports(),
         )
@@ -657,14 +667,15 @@ class ServerRenderer:  # ruff: ignore[too-many-public-methods]
         """Return the user modules `main.py` imports, with stubs, and their package, beside the server package."""
         if not (owned := self.owned):
             return ()
-        services = PurePosixPath(self.services_package.rpartition(".")[2])
         docstring = (
             f"Your implementations of {self.config.package}, which {self.config.package}.main imports.\n\n"
             "datamodel-code-generator wrote this file once and never overwrites it, or the modules beside it."
         )
         return (
-            self.file(services / "__init__.py", "package", self.facade(self.services_package, docstring)),
-            *(RenderedFile(path=services / f"{item.stem}.py", kind="implementation", text=item.stub) for item in owned),
+            self.file(
+                PurePosixPath("services", "__init__.py"), "package", self.facade(self.services_package, docstring)
+            ),
+            *(RenderedFile(path=item.path, kind="implementation", text=item.source) for item in owned),
         )
 
     def next_steps(self) -> NextSteps:
@@ -695,7 +706,7 @@ class ServerRenderer:  # ruff: ignore[too-many-public-methods]
             table=[Keyword(repr(item.module), repr(item.name)) for item in owned],
             missing=missing,
             create_app=create_app,
-            arguments=[Keyword(item.keyword, f"{item.alias}()" if item.protocol else item.alias) for item in owned],
+            arguments=[Keyword(item.keyword, f"{item.alias}()" if item.base else item.alias) for item in owned],
             imports=module.imports(),
         )
 
@@ -764,7 +775,6 @@ class ServerRenderer:  # ruff: ignore[too-many-public-methods]
             services_package=self.services_package,
             owned=self.owned,
             app=f"{config.package}.main:app",
-            main=f"{config.package.replace('.', '/')}/main.py",
             arguments=", ".join((*arguments, *(("authorize=authorize",) if plan.schemes else ()))),
             schemes=[{"name": scheme.name, "credential": _credential(scheme)} for scheme in plan.schemes],
             forms=any(spec.body is not None and spec.body.form for spec in plan.operations),

@@ -4,9 +4,10 @@ generate
   DocumentationAnnotationWarning: server: /x-limit: The served document leaves out x-limit, which has no JSON form
 tree
 generate
-  Next steps: implement services/pets.py (created), services/store.py (created), services/default.py (created), then run the server:
+  Next steps: implement the stubs in services/pets.py, services/store.py, services/default.py, then run the server:
     uv add uvicorn && uv run uvicorn example.server.main:app --reload
-  or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+  or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+  See server/README.md.
 tree
   meta/models.json
   models.py

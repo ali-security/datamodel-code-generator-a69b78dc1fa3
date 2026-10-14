@@ -12,25 +12,27 @@ Custom templates, base classes, and Python types stay within these two backends.
 
 `main.py` serves the application: it imports your implementation of each router group and your `authorize` function from the `services` package beside this package, and passes them to `create_app`.
 Generation writes each of these modules that is missing, with a stub for each method that raises `NotImplementedError`, and never overwrites or deletes one.
+The `services` package belongs to this server alone: put another server package under a parent package of its own.
 
-| Module | Defines |
-| --- | --- |
-| `services/pets.py` | `class Pets(PetsService)` |
-| `services/public.py` | `class Public(PublicService)` |
-| `services/default.py` | `class Default(DefaultService)` |
-| `services/authorize.py` | `def authorize(requirement_sets, credentials)` |
+| Module | File | Defines |
+| --- | --- | --- |
+| `services.pets` | `../services/pets.py` | `class Pets(PetsService[object])` |
+| `services.public` | `../services/public.py` | `class Public(PublicService)` |
+| `services.default` | `../services/default.py` | `class Default(DefaultService[object])` |
+| `services.authorize` | `../services/authorize.py` | `def authorize(requirement_sets, credentials)` |
 
-Replace each stub with your code, then run the application with an ASGI server:
+The file paths are relative to this README.
+Replace each stub with your code, then run the application with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 
 ```console
 uv add uvicorn
 uv run uvicorn server.main:app --reload
 ```
 
-`fastapi dev server/main.py` runs it too, with `fastapi[standard]` installed.
+`fastapi dev` runs it too: `uv add "fastapi[standard]"`, then `uv run fastapi dev` with the path of `main.py`, beside this README.
 To pass other instances, such as fakes in tests, call `create_app` yourself; see [Implementing the services](#implementing-the-services).
 
-### `services/pets.py`
+### `services.pets`
 
 ```python
 """Implement PetsService of server.services; server.main imports Pets from this module.
@@ -48,7 +50,7 @@ from server.services import PetsService
 
 
 class Pets(PetsService[object]):
-    """Implement `list_pets`."""
+    """Implement the pets operations."""
 
     def list_pets(
         self,
@@ -61,7 +63,7 @@ class Pets(PetsService[object]):
         raise NotImplementedError
 ```
 
-### `services/public.py`
+### `services.public`
 
 ```python
 """Implement PublicService of server.services; server.main imports Public from this module.
@@ -78,7 +80,7 @@ from server.services import PublicService
 
 
 class Public(PublicService):
-    """Implement `get_public`."""
+    """Implement the public operations."""
 
     def get_public(
         self,
@@ -89,7 +91,7 @@ class Public(PublicService):
         raise NotImplementedError
 ```
 
-### `services/default.py`
+### `services.default`
 
 ```python
 """Implement DefaultService of server.services; server.main imports Default from this module.
@@ -106,7 +108,7 @@ from server.services import DefaultService
 
 
 class Default(DefaultService[object]):
-    """Implement `get_maybe`, `put_pet`, `get_session`, and `get_custom`."""
+    """Implement the default operations."""
 
     async def get_maybe(
         self,
@@ -151,7 +153,7 @@ class Default(DefaultService[object]):
         raise NotImplementedError
 ```
 
-### `services/authorize.py`
+### `services.authorize`
 
 ```python
 """Authorize the secured operations of server; server.main imports authorize from this module.

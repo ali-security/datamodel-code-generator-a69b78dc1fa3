@@ -12,23 +12,25 @@ Custom templates, base classes, and Python types stay within these two backends.
 
 `main.py` serves the application: it imports your implementation of each router group from the `services` package beside this package, and passes them to `create_app`.
 Generation writes each of these modules that is missing, with a stub for each method that raises `NotImplementedError`, and never overwrites or deletes one.
+The `services` package belongs to this server alone: put another server package under a parent package of its own.
 
-| Module | Defines |
-| --- | --- |
-| `services/json.py` | `class Json(JsonService)` |
-| `services/raw.py` | `class Raw(RawService)` |
+| Module | File | Defines |
+| --- | --- | --- |
+| `services.json` | `../services/json.py` | `class Json(JsonService)` |
+| `services.raw` | `../services/raw.py` | `class Raw(RawService)` |
 
-Replace each stub with your code, then run the application with an ASGI server:
+The file paths are relative to this README.
+Replace each stub with your code, then run the application with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 
 ```console
 uv add uvicorn
 uv run uvicorn server.main:app --reload
 ```
 
-`fastapi dev server/main.py` runs it too, with `fastapi[standard]` installed.
+`fastapi dev` runs it too: `uv add "fastapi[standard]"`, then `uv run fastapi dev` with the path of `main.py`, beside this README.
 To pass other instances, such as fakes in tests, call `create_app` yourself; see [Implementing the services](#implementing-the-services).
 
-### `services/json.py`
+### `services.json`
 
 ```python
 """Implement JsonService of server.services; server.main imports Json from this module.
@@ -47,7 +49,7 @@ from server.services import JsonService
 
 
 class Json(JsonService):
-    """Implement `post_json`."""
+    """Implement the json operations."""
 
     def post_json(
         self,
@@ -61,7 +63,7 @@ class Json(JsonService):
         raise NotImplementedError
 ```
 
-### `services/raw.py`
+### `services.raw`
 
 ```python
 """Implement RawService of server.services; server.main imports Raw from this module.
@@ -79,7 +81,7 @@ from server.services import RawService
 
 
 class Raw(RawService):
-    """Implement `post_text`."""
+    """Implement the raw operations."""
 
     def post_text(
         self,

@@ -10,14 +10,14 @@ Custom templates, base classes, and Python types stay within these two backends.
 
 ## Next steps
 
-`main.py` serves the application of `create_app`; run it with an ASGI server:
+`main.py` serves the application of `create_app`; run it with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 
 ```console
 uv add uvicorn
 uv run uvicorn server.main:app --reload
 ```
 
-`fastapi dev server/main.py` runs it too, with `fastapi[standard]` installed.
+`fastapi dev` runs it too: `uv add "fastapi[standard]"`, then `uv run fastapi dev` with the path of `main.py`, beside this README.
 To pass other instances, such as fakes in tests, call `create_app` yourself; see [Implementing the services](#implementing-the-services).
 
 ## Operations

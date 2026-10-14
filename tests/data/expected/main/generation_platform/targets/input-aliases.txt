@@ -24,9 +24,10 @@ check
   DocumentationAnnotationWarning: server: /x-repeated/list/1/1: The served document leaves out 1, which has no JSON form
   DocumentationAnnotationWarning: server: /x-repeated/list/1/2: The served document leaves out 2, which has no JSON form
 generate
-  Next steps: implement services/default.py (created), then run the server:
+  Next steps: implement the stubs in services/default.py, then run the server:
     uv add uvicorn && uv run uvicorn example.server.main:app --reload
-  or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+  or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+  See server/README.md.
 tree
   server/README.md
   server/__init__.py

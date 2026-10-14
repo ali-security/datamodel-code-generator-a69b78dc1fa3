@@ -1,9 +1,10 @@
 # publication-modes
 chmod . 0750
 generate
-  Next steps: implement services/pets.py (created), services/store.py (created), services/default.py (created), then run the server:
+  Next steps: implement the stubs in services/pets.py, services/store.py, services/default.py, then run the server:
     uv add uvicorn && uv run uvicorn example.server.main:app --reload
-  or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+  or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+  See server/README.md.
 tree
   models.py
   server/README.md
@@ -31,9 +32,10 @@ mode server/__init__.py: 0640
 mode server/README.md: 0640
 chmod models.py 0604
 generate
-  Next steps: implement services/default.py, then run the server:
+  Next steps: run the server with your services in services/default.py:
     uv add uvicorn && uv run uvicorn example.server.main:app --reload
-  or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+  or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+  See server/README.md.
 tree
   models.py
   server/README.md

@@ -16,7 +16,7 @@ from pydantic import AwareDatetime
 
 
 class Pets(PetsService):
-    """Implement `list_pets`, `create_pet`, `list_my_pets`, `get_pet`, and `delete_pet`."""
+    """Implement the pets operations."""
 
     def list_pets(
         self,

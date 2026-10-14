@@ -52,15 +52,19 @@ def _tree(directory: Path, root: Path) -> str:
     return ", ".join(sorted(path.relative_to(root).as_posix() for path in directory.rglob("*.py")))
 
 
-def _serve(package: str, *requests: tuple[str, str, dict[str, str]]) -> Iterator[str]:
-    """Import the package's entrypoint and send each request to its application, or report why the import failed."""
+def _serve(root: Path, package: str, *requests: tuple[str, str, dict[str, str]]) -> Iterator[str]:
+    """Import the package's entrypoint and send each request to its application, or report why the import failed.
+
+    Errors name files under the generation root, which the report spells `<root>` with forward slashes.
+    """
     top = package.partition(".")[0]
     try:
         import_generated(package)
         main = importlib.import_module(f"{package}.main")
     except Exception as error:  # noqa: BLE001
         cause = error.__cause__
-        yield f"  {type(error).__name__}: {error}"
+        message = str(error).replace(str(root), "<root>").replace(root.as_posix(), "<root>").replace("\\", "/")
+        yield f"  {type(error).__name__}: {message}"
         yield f"  caused by {type(cause).__name__} of {getattr(cause, 'name', None)}" if cause else "  not chained"
         return
     finally:
@@ -89,7 +93,7 @@ def fastapi_entrypoint_report(root: Path) -> tuple[str, dict[tuple[str, ...], st
     }
     sys.path.insert(0, str(nested))
     try:
-        lines.extend(("serve the stubs", *_serve("app.server", inventory)))
+        lines.extend(("serve the stubs", *_serve(nested, "app.server", inventory)))
         shutil.copy2(USER / "store.py", store)
         (services / "pets.py").write_text("# edited\n" + (services / "pets.py").read_text(encoding="utf-8"))
         _generate(nested, "pets.yaml", "app.server", "app.models")
@@ -97,14 +101,34 @@ def fastapi_entrypoint_report(root: Path) -> tuple[str, dict[tuple[str, ...], st
             f"regenerate: store kept {store.read_bytes() == (USER / 'store.py').read_bytes()}; "
             f"pets kept {(services / 'pets.py').read_text(encoding='utf-8').startswith('# edited')}"
         )
-        lines.extend(("serve an implementation", *_serve("app.server", inventory)))
-        for name in ("store-mismatch", "store-without-class", "store-dependency", "store-import-name"):
+        lines.extend(("serve an implementation", *_serve(nested, "app.server", inventory)))
+        for name in (
+            "store-mismatch",
+            "store-without-class",
+            "store-dependency",
+            "store-import-name",
+            "store-wrapped",
+            "store-builtin",
+        ):
             shutil.copy2(USER / f"{name}.py", store)
-            lines.extend((f"serve {name}", *_serve("app.server", inventory)))
+            lines.extend((f"serve {name}", *_serve(nested, "app.server", inventory)))
+        deferred = (USER / "store-deferred.py").read_text(encoding="utf-8")
+        future = "" if sys.version_info >= (3, 14) else "from __future__ import annotations\n"
+        store.write_text(future + deferred, encoding="utf-8")
+        lines.extend(("serve store-deferred", *_serve(nested, "app.server", inventory)))
+        shutil.copy2(USER / "store.py", store)
+        pets = (services / "pets.py").read_text(encoding="utf-8")
+        shutil.copy2(USER / "pets-import-name.py", services / "pets.py")
+        lines.extend(("serve pets-import-name", *_serve(nested, "app.server", inventory)))
+        (services / "pets.py").write_text(pets, encoding="utf-8")
         store.unlink()
-        lines.extend(("serve without store.py", *_serve("app.server", inventory)))
+        (store.with_suffix("") / "__init__.py").parent.mkdir()
+        (store.with_suffix("") / "__init__.py").write_text('"""A store package without its class."""\n')
+        lines.extend(("serve a store package without Store", *_serve(nested, "app.server", inventory)))
+        shutil.rmtree(store.with_suffix(""))
+        lines.extend(("serve without store.py", *_serve(nested, "app.server", inventory)))
         shutil.rmtree(services)
-        lines.extend(("serve without the services package", *_serve("app.server", inventory)))
+        lines.extend(("serve without the services package", *_serve(nested, "app.server", inventory)))
     finally:
         sys.path.remove(str(nested))
     lines.append("# top-level server package secured, whose groups service and operations both name a class Operations")
@@ -119,7 +143,7 @@ def fastapi_entrypoint_report(root: Path) -> tuple[str, dict[tuple[str, ...], st
     sys.path.insert(0, str(secured))
     try:
         key = {"X-API-Key": "key"}
-        lines.extend(("serve the stubs", *_serve("secured", ("GET", "/public", {}), ("GET", "/pets", key))))
+        lines.extend(("serve the stubs", *_serve(secured, "secured", ("GET", "/public", {}), ("GET", "/pets", key))))
     finally:
         sys.path.remove(str(secured))
     return "\n".join(lines) + "\n", stubs

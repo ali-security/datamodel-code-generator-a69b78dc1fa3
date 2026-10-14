@@ -12,23 +12,25 @@ Custom templates, base classes, and Python types stay within these two backends.
 
 `main.py` serves the application: it imports your implementation of each router group from the `services` package beside this package, and passes them to `create_app`.
 Generation writes each of these modules that is missing, with a stub for each method that raises `NotImplementedError`, and never overwrites or deletes one.
+The `services` package belongs to this server alone: put another server package under a parent package of its own.
 
-| Module | Defines |
-| --- | --- |
-| `services/pets.py` | `class Pets(PetsService)` |
-| `services/store.py` | `class Store(StoreService)` |
+| Module | File | Defines |
+| --- | --- | --- |
+| `services.pets` | `../services/pets.py` | `class Pets(PetsService)` |
+| `services.store` | `../services/store.py` | `class Store(StoreService)` |
 
-Replace each stub with your code, then run the application with an ASGI server:
+The file paths are relative to this README.
+Replace each stub with your code, then run the application with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 
 ```console
 uv add uvicorn
 uv run uvicorn server.main:app --reload
 ```
 
-`fastapi dev server/main.py` runs it too, with `fastapi[standard]` installed.
+`fastapi dev` runs it too: `uv add "fastapi[standard]"`, then `uv run fastapi dev` with the path of `main.py`, beside this README.
 To pass other instances, such as fakes in tests, call `create_app` yourself; see [Implementing the services](#implementing-the-services).
 
-### `services/pets.py`
+### `services.pets`
 
 ```python
 """Implement PetsService of server.services; server.main imports Pets from this module.
@@ -39,16 +41,17 @@ server again updates the Protocol, so type checkers point at the methods to chan
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import models
 from fastapi.responses import Response
 from pydantic import AwareDatetime
 from server import HTTPResult
 from server.services import PetsService
-from uuid import UUID
 
 
 class Pets(PetsService):
-    """Implement `list_pets`, `create_pet`, `list_my_pets`, `get_pet`, and `delete_pet`."""
+    """Implement the pets operations."""
 
     def list_pets(
         self,
@@ -104,7 +107,7 @@ class Pets(PetsService):
         raise NotImplementedError
 ```
 
-### `services/store.py`
+### `services.store`
 
 ```python
 """Implement StoreService of server.services; server.main imports Store from this module.
@@ -122,7 +125,7 @@ from server.services import StoreService
 
 
 class Store(StoreService):
-    """Implement `get_inventory`."""
+    """Implement the store operations."""
 
     def get_inventory(
         self,

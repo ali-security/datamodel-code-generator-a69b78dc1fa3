@@ -12,7 +12,7 @@ from secured.services import Service
 
 
 class Operations(Service):
-    """Implement `get_public`."""
+    """Implement the service operations."""
 
     def get_public(
         self,

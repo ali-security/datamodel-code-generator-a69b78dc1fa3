@@ -13,7 +13,7 @@ from fastapi.responses import Response
 
 
 class Store(StoreService):
-    """Implement `get_inventory`."""
+    """Implement the store operations."""
 
     def get_inventory(
         self,

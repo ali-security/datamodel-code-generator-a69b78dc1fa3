@@ -2,9 +2,10 @@
 mkdir models
 mkdir server
 generate
-  Next steps: implement services/store.py (created), then run the server:
+  Next steps: implement the stubs in services/store.py, then run the server:
     uv add uvicorn && uv run uvicorn example.server.main:app --reload
-  or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+  or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+  See server/README.md.
 tree
   models/__init__.py
   models/pets.py
@@ -29,9 +30,10 @@ leftovers []
 write server/services.py
 write models/pets.py
 generate
-  Next steps: implement services/store.py, then run the server:
+  Next steps: run the server with your services in services/store.py:
     uv add uvicorn && uv run uvicorn example.server.main:app --reload
-  or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+  or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+  See server/README.md.
 tree
   models/__init__.py
   models/pets.py

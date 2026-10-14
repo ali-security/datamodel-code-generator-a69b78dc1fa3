@@ -12,23 +12,25 @@ Custom templates, base classes, and Python types stay within these two backends.
 
 `main.py` serves the application: it imports your implementation of each router group and your `authorize` function from the `services` package beside this package, and passes them to `create_app`.
 Generation writes each of these modules that is missing, with a stub for each method that raises `NotImplementedError`, and never overwrites or deletes one.
+The `services` package belongs to this server alone: put another server package under a parent package of its own.
 
-| Module | Defines |
-| --- | --- |
-| `services/default.py` | `class Default(DefaultService)` |
-| `services/authorize.py` | `def authorize(requirement_sets, credentials)` |
+| Module | File | Defines |
+| --- | --- | --- |
+| `services.default` | `../services/default.py` | `class Default(DefaultService[object])` |
+| `services.authorize` | `../services/authorize.py` | `def authorize(requirement_sets, credentials)` |
 
-Replace each stub with your code, then run the application with an ASGI server:
+The file paths are relative to this README.
+Replace each stub with your code, then run the application with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 
 ```console
 uv add uvicorn
 uv run uvicorn server.main:app --reload
 ```
 
-`fastapi dev server/main.py` runs it too, with `fastapi[standard]` installed.
+`fastapi dev` runs it too: `uv add "fastapi[standard]"`, then `uv run fastapi dev` with the path of `main.py`, beside this README.
 To pass other instances, such as fakes in tests, call `create_app` yourself; see [Implementing the services](#implementing-the-services).
 
-### `services/default.py`
+### `services.default`
 
 ```python
 """Implement DefaultService of server.services; server.main imports Default from this module.
@@ -39,15 +41,16 @@ server again updates the Protocol, so type checkers point at the methods to chan
 
 from __future__ import annotations
 
+from typing import Any
+
 import models
 from fastapi.responses import Response
 from server import HTTPResult
 from server.services import DefaultService
-from typing import Any
 
 
 class Default(DefaultService[object]):
-    """Implement `subscribe`, `list_events`, `get_secure`, `ping`, and `echo`."""
+    """Implement the default operations."""
 
     def subscribe(
         self,
@@ -95,7 +98,7 @@ class Default(DefaultService[object]):
         raise NotImplementedError
 ```
 
-### `services/authorize.py`
+### `services.authorize`
 
 ```python
 """Authorize the secured operations of server; server.main imports authorize from this module.

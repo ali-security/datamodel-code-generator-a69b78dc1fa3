@@ -12,25 +12,27 @@ Custom templates, base classes, and Python types stay within these two backends.
 
 `main.py` serves the application: it imports your implementation of each router group from the `services` package beside this package, and passes them to `create_app`.
 Generation writes each of these modules that is missing, with a stub for each method that raises `NotImplementedError`, and never overwrites or deletes one.
+The `services` package belongs to this server alone: put another server package under a parent package of its own.
 
-| Module | Defines |
-| --- | --- |
-| `services/default.py` | `class Default(DefaultService)` |
-| `services/default_1.py` | `class Default1(Default1Service)` |
-| `services/default_2.py` | `class Default2(Default2Service)` |
-| `services/untagged.py` | `class Untagged(UntaggedService)` |
+| Module | File | Defines |
+| --- | --- | --- |
+| `services.default` | `../services/default.py` | `class Default(DefaultService)` |
+| `services.default_1` | `../services/default_1.py` | `class Default1(Default1Service)` |
+| `services.default_2` | `../services/default_2.py` | `class Default2(Default2Service)` |
+| `services.untagged` | `../services/untagged.py` | `class Untagged(UntaggedService)` |
 
-Replace each stub with your code, then run the application with an ASGI server:
+The file paths are relative to this README.
+Replace each stub with your code, then run the application with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 
 ```console
 uv add uvicorn
 uv run uvicorn server.main:app --reload
 ```
 
-`fastapi dev server/main.py` runs it too, with `fastapi[standard]` installed.
+`fastapi dev` runs it too: `uv add "fastapi[standard]"`, then `uv run fastapi dev` with the path of `main.py`, beside this README.
 To pass other instances, such as fakes in tests, call `create_app` yourself; see [Implementing the services](#implementing-the-services).
 
-### `services/default.py`
+### `services.default`
 
 ```python
 """Implement DefaultService of server.services; server.main imports Default from this module.
@@ -47,7 +49,7 @@ from server.services import DefaultService
 
 
 class Default(DefaultService):
-    """Implement `list_defaults`."""
+    """Implement the default operations."""
 
     def list_defaults(
         self,
@@ -58,7 +60,7 @@ class Default(DefaultService):
         raise NotImplementedError
 ```
 
-### `services/default_1.py`
+### `services.default_1`
 
 ```python
 """Implement Default1Service of server.services; server.main imports Default1 from this module.
@@ -75,7 +77,7 @@ from server.services import Default1Service
 
 
 class Default1(Default1Service):
-    """Implement `ping`."""
+    """Implement the default_1 operations."""
 
     def ping(
         self,
@@ -86,7 +88,7 @@ class Default1(Default1Service):
         raise NotImplementedError
 ```
 
-### `services/default_2.py`
+### `services.default_2`
 
 ```python
 """Implement Default2Service of server.services; server.main imports Default2 from this module.
@@ -103,7 +105,7 @@ from server.services import Default2Service
 
 
 class Default2(Default2Service):
-    """Implement `list_upper_defaults`."""
+    """Implement the default_2 operations."""
 
     def list_upper_defaults(
         self,
@@ -114,7 +116,7 @@ class Default2(Default2Service):
         raise NotImplementedError
 ```
 
-### `services/untagged.py`
+### `services.untagged`
 
 ```python
 """Implement UntaggedService of server.services; server.main imports Untagged from this module.
@@ -131,7 +133,7 @@ from server.services import UntaggedService
 
 
 class Untagged(UntaggedService):
-    """Implement `list_untagged`."""
+    """Implement the untagged operations."""
 
     def list_untagged(
         self,

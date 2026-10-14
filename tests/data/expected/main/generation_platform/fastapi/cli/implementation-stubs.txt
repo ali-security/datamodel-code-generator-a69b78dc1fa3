@@ -3,9 +3,10 @@
 generate: services ['__init__.py', 'pets.py', 'store.py']; pets '# edited\n'
 Add the runtime dependencies of server to your project:
   uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16"
-Next steps: implement services/pets.py, services/store.py (created), then run the server:
+Next steps: implement the stubs in services/store.py (your services: services/pets.py), then run the server:
   uv add uvicorn && uv run uvicorn server.main:app --reload
-or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+See server/README.md.
 {
   "readme": "server/README.md",
   "entrypoint": {
@@ -27,3 +28,10 @@ or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
     }
   ]
 }
+generate over a pets package: services ['__init__.py', 'pets', 'store.py']
+Add the runtime dependencies of server to your project:
+  uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16"
+Next steps: run the server with your services in services/pets/__init__.py, services/store.py:
+  uv add uvicorn && uv run uvicorn server.main:app --reload
+or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+See server/README.md.

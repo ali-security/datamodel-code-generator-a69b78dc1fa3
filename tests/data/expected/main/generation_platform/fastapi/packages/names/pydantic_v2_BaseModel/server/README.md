@@ -12,24 +12,26 @@ Custom templates, base classes, and Python types stay within these two backends.
 
 `main.py` serves the application: it imports your implementation of each router group from the `services` package beside this package, and passes them to `create_app`.
 Generation writes each of these modules that is missing, with a stub for each method that raises `NotImplementedError`, and never overwrites or deletes one.
+The `services` package belongs to this server alone: put another server package under a parent package of its own.
 
-| Module | Defines |
-| --- | --- |
-| `services/users.py` | `class Users(UsersService)` |
-| `services/field_2024_files.py` | `class Field2024Files(Field2024FilesService)` |
-| `services/misc.py` | `class Misc(MiscService)` |
+| Module | File | Defines |
+| --- | --- | --- |
+| `services.users` | `../services/users.py` | `class Users(UsersService)` |
+| `services.field_2024_files` | `../services/field_2024_files.py` | `class Field2024Files(Field2024FilesService)` |
+| `services.misc` | `../services/misc.py` | `class Misc(MiscService)` |
 
-Replace each stub with your code, then run the application with an ASGI server:
+The file paths are relative to this README.
+Replace each stub with your code, then run the application with an ASGI server, from the directory that holds the top-level package (add `--app-dir src` for a `src` layout):
 
 ```console
 uv add uvicorn
 uv run uvicorn server.main:app --reload
 ```
 
-`fastapi dev server/main.py` runs it too, with `fastapi[standard]` installed.
+`fastapi dev` runs it too: `uv add "fastapi[standard]"`, then `uv run fastapi dev` with the path of `main.py`, beside this README.
 To pass other instances, such as fakes in tests, call `create_app` yourself; see [Implementing the services](#implementing-the-services).
 
-### `services/users.py`
+### `services.users`
 
 ```python
 """Implement UsersService of server.services; server.main imports Users from this module.
@@ -47,7 +49,7 @@ from server.services import UsersService
 
 
 class Users(UsersService):
-    """Implement `get_users_me`, `get_user_by_id`, and `class_`."""
+    """Implement the users operations."""
 
     def get_users_me(
         self,
@@ -88,7 +90,7 @@ class Users(UsersService):
         raise NotImplementedError
 ```
 
-### `services/field_2024_files.py`
+### `services.field_2024_files`
 
 ```python
 """Implement Field2024FilesService of server.services; server.main imports Field2024Files from this module.
@@ -105,7 +107,7 @@ from server.services import Field2024FilesService
 
 
 class Field2024Files(Field2024FilesService):
-    """Implement `get_file`."""
+    """Implement the field_2024_files operations."""
 
     def get_file(
         self,
@@ -120,7 +122,7 @@ class Field2024Files(Field2024FilesService):
         raise NotImplementedError
 ```
 
-### `services/misc.py`
+### `services.misc`
 
 ```python
 """Implement MiscService of server.services; server.main imports Misc from this module.
@@ -137,7 +139,7 @@ from server.services import MiscService
 
 
 class Misc(MiscService):
-    """Implement `health_check`."""
+    """Implement the misc operations."""
 
     def health_check(
         self,

@@ -312,20 +312,24 @@ def _generated(project: GeneratedProject) -> Iterator[GeneratedArtifact]:
 
 
 def _stage_implementations(project: GeneratedProject, output: Path | None, staged_root: Path) -> None:
-    """Stage the user modules inside a compared output directory as they are, so it never lists them as extra.
+    """Stage the `services` package inside a compared output directory as it is, so it never lists its files as extra.
 
-    A user module beside a server package lies in the models directory that holds the package. Without an output
-    directory to compare with the files at their paths, nothing is staged.
+    The user's package beside a server package lies in the models directory that holds the server package, with the
+    modules generation writes and any others. Without an output directory to compare with the files at their paths,
+    nothing is staged.
     """
     if output is None:
         return
+    from datamodel_code_generator._leftover_files import python_files  # noqa: PLC0415
+
     root = output.resolve()
-    for artifact in project.artifacts:
-        if artifact.kind != "implementation":
+    services = {artifact.path.parent.resolve() for artifact in project.artifacts if artifact.kind == "implementation"}
+    for directory in services:
+        if not directory.is_relative_to(root):
             continue
-        if (location := artifact.path.resolve()).is_relative_to(root) and location.is_file():
-            (staged := staged_root / location.relative_to(root)).parent.mkdir(parents=True, exist_ok=True)
-            staged.write_bytes(location.read_bytes())
+        for path in python_files(directory):
+            (staged := staged_root / directory.relative_to(root) / path).parent.mkdir(parents=True, exist_ok=True)
+            staged.write_bytes((directory / path).read_bytes())
 
 
 def _existing(path: Path, baseline_root: Path | None) -> Path:
@@ -355,11 +359,17 @@ def _steps(steps: NextSteps) -> list[str]:
             *(f"  {line}".rstrip() for line in steps.usage.splitlines()),
             f"See {readme}.",
         ]
-    files = ", ".join(f"{_shown(item.path)}{' (created)' if item.created else ''}" for item in steps.implementations)
+    created = ", ".join(_shown(item.path) for item in steps.implementations if item.created)
+    kept = ", ".join(_shown(item.path) for item in steps.implementations if not item.created)
+    implement = (
+        f"implement the stubs in {created}{f' (your services: {kept})' if kept else ''}, then " if created else ""
+    )
+    yours = f" with your services in {kept}" if kept and not created else ""
     return [
-        f"Next steps: {f'implement {files}, then ' if files else ''}run the server:",
+        f"Next steps: {implement}run the server{yours}:",
         f"  uv add uvicorn && uv run uvicorn {steps.app} --reload",
-        f'or `fastapi dev {_shown(cast("Path", steps.entrypoint))}` with "fastapi[standard]"; see {readme}.',
+        f'or: uv add "fastapi[standard]" && uv run fastapi dev {_shown(cast("Path", steps.entrypoint))}',
+        f"See {readme}.",
     ]
 
 

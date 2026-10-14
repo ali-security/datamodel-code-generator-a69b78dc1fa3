@@ -252,9 +252,10 @@ sets 3.12). Each run ends by printing the runtime dependencies of its package to
 ```text
 Add the runtime dependencies of server to your project:
   uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16"
-Next steps: implement services/pets.py (created), then run the server:
+Next steps: implement the stubs in services/pets.py, then run the server:
   uv add uvicorn && uv run uvicorn server.main:app --reload
-or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.
+or: uv add "fastapi[standard]" && uv run fastapi dev server/main.py
+See server/README.md.
 Add the runtime dependencies of client to your project:
   uv add "httpx2>=2.13.0" "typing-extensions>=4.16" "pydantic>=2.14.0"
 Next steps: call the API with the client:

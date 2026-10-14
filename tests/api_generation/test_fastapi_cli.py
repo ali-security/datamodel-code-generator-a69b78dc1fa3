@@ -1625,14 +1625,53 @@ def test_fastapi_cli_jobs_json_paths(
 def test_fastapi_cli_shared_models_jobs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Write the models two server jobs share once, next to the package of each job, then check them."""
+    """Write the models two server jobs share once, next to the package of each job, then check them.
+
+    Each server package has a parent package of its own, whose `services` package holds its implementations.
+    """
     monkeypatch.chdir(tmp_path)
     _copy(tmp_path, "pyproject-shared-models-jobs.toml")
     run_main_with_args(["--all-jobs"], capsys=capsys, expected_stderr=SHARED_DEPENDENCIES.read_text(encoding="utf-8"))
     assert_file_content(tmp_path / "models.py", PACKAGE / "models.py")
     assert_directory_content(tmp_path / "server", PACKAGE / "server")
-    assert_output(_methods(tmp_path / "admin" / "services.py"), EXPECTED / "cli" / "shared-models.txt")
+    assert_output(_methods(tmp_path / "back" / "admin" / "services.py"), EXPECTED / "cli" / "shared-models.txt")
     run_main_with_args(["--all-jobs", "--check"], capsys=capsys, assert_no_stderr=True)
+
+
+def test_fastapi_cli_shared_parent_jobs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refuse two server jobs in one parent package, which would import their implementations from one module."""
+    monkeypatch.chdir(tmp_path)
+    _copy(tmp_path, "pyproject-shared-parent-jobs.toml")
+    run_main_with_args(["--all-jobs"], expected_exit=Exit.ERROR)
+    captured = capsys.readouterr()
+    written = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*.py"))
+    assert_output(f"{captured.err}written: {written}\n", EXPECTED / "cli" / "shared-parent-jobs.txt")
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("user-module", ["--output", "models.py"]),
+        ("models-module", ["--output", "services.py", "--server-model-package", "services"]),
+    ],
+)
+def test_fastapi_cli_services_module(
+    name: str, arguments: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refuse a module beside the server package with the name of the services package, before writing anything."""
+    monkeypatch.chdir(tmp_path)
+    _copy(tmp_path)
+    if name == "user-module":
+        (tmp_path / "services.py").write_text("# A module of yours\n", encoding="utf-8")
+    run_main_with_args(
+        ["--input", "pets.yaml", "--input-file-type", "openapi", *_server(), *arguments], expected_exit=Exit.ERROR
+    )
+    written = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*.py"))
+    assert_output(
+        f"{capsys.readouterr().err}written: {written}\n", EXPECTED / "cli" / "services-module" / f"{name}.txt"
+    )
 
 
 def test_fastapi_cli_shared_models_timestamp(
@@ -1650,7 +1689,7 @@ def test_fastapi_cli_shared_models_timestamp(
             ["--all-jobs"], capsys=capsys, expected_stderr=SHARED_DEPENDENCIES.read_text(encoding="utf-8")
         )
     assert_file_content(tmp_path / "models.py", "cli/timestamp-models.py")
-    assert_file_content(tmp_path / "admin" / "services.py", "cli/timestamp-services.py")
+    assert_file_content(tmp_path / "back" / "admin" / "services.py", "cli/timestamp-services.py")
 
 
 @pytest.mark.parametrize(
@@ -2367,7 +2406,8 @@ def test_fastapi_cli_implementation_stubs(
 ) -> None:
     """Write each missing service module once with stubs, never over an edit, and never from a check or an input diff.
 
-    Neither --check nor --diff-against reports a missing module; the next generation writes it and names it created.
+    Neither --check nor --diff-against reports a missing module; the next generation writes it and asks to implement
+    its stubs. A group implemented as a package keeps it, and the notice names its initializer.
     """
     monkeypatch.chdir(tmp_path)
     _copy(tmp_path)
@@ -2391,5 +2431,12 @@ def test_fastapi_cli_implementation_stubs(
         ),
         captured.err.rstrip(),
         json.dumps({key: target[key] for key in ("readme", "entrypoint", "implementation")}, indent=2),
+    ))
+    (services / "pets").mkdir()
+    pets.rename(services / "pets" / "__init__.py")
+    run_main_with_args(arguments)
+    lines.extend((
+        f"generate over a pets package: services {sorted(path.name for path in services.iterdir())}",
+        capsys.readouterr().err.rstrip(),
     ))
     assert_output("\n".join(lines) + "\n", EXPECTED / "cli" / "implementation-stubs.txt")

@@ -13,7 +13,7 @@ from secured.services import PetsService
 
 
 class Pets(PetsService[object]):
-    """Implement `list_pets`."""
+    """Implement the pets operations."""
 
     def list_pets(
         self,

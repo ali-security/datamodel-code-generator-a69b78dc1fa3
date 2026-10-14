@@ -19,6 +19,7 @@ from datamodel_code_generator._api_types import (
     Diagnostic,
     GeneratedArtifact,
     GeneratedProject,
+    Implementation,
     NextSteps,
     OperationRef,
 )
@@ -65,6 +66,15 @@ class RenderedFile:
     kind: str
     text: str
     verbatim: bool = False
+
+
+def implementation_text(path: PurePosixPath) -> str:
+    """Return the text a rendered file holds where the finished text of an implementation module goes.
+
+    `path` is the module's path among the implementations of a `TargetRender`, which are finished like the other
+    modules first, so a README shows a stub as generation writes it.
+    """
+    return f"\x1fimplementation:{path.as_posix()}\x1f"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -459,17 +469,25 @@ def _present(location: Path) -> bool:
     return location.exists() or (location.name != "__init__.py" and location.with_suffix("").is_dir())
 
 
-def _located(steps: NextSteps, package: Path, kept: frozenset[Path]) -> NextSteps:
-    """Return a target's next steps with the paths of the files it names, saying which implementations it creates."""
+def _located(steps: NextSteps, package: Path, kept: frozenset[Path], cwd: Path) -> NextSteps:
+    """Return a target's next steps with the paths of the files it names, saying which implementations it creates.
+
+    An implementation that is a package names its initializer.
+    """
     home = package.parent
     return replace(
         steps,
         readme=package / steps.readme,
         entrypoint=None if steps.entrypoint is None else package / steps.entrypoint,
-        implementations=tuple(
-            replace(item, path=(path := home / item.path), created=path not in kept) for item in steps.implementations
-        ),
+        implementations=tuple(_implementation(item, home / item.path, kept, cwd) for item in steps.implementations),
     )
+
+
+def _implementation(item: Implementation, path: Path, kept: frozenset[Path], cwd: Path) -> Implementation:
+    """Return a user module at its path, created unless kept: its module file, or a package's initializer instead."""
+    if not (cwd / path).exists() and (cwd / (directory := path.with_suffix(""))).is_dir():
+        return replace(item, path=directory / "__init__.py", created=False)
+    return replace(item, path=path, created=path not in kept)
 
 
 class _Planner:
@@ -593,9 +611,8 @@ class _Planner:
             for file in rendered.implementations
             if _present(self.cwd / home.joinpath(*file.path.parts))
         }
-        finished, written = _Finisher(self).finish(
-            rendered, tuple(file for file in rendered.implementations if file.path not in kept)
-        )
+        finished, stubs = _Finisher(self).finish(rendered)
+        written = [file for file in stubs if file.path not in kept]
         artifacts = (
             *(self.artifact(self.model_path(artifact), "model", artifact.content) for artifact in models.artifacts),
             *(self.artifact(config.output.joinpath(*file.path.parts), "target", file.content) for file in finished),
@@ -617,12 +634,43 @@ class _Planner:
             ),
         )
         self.check_collisions(artifacts)
+        self.check_services(artifacts)
         return GeneratedProject(
             target=generator.kind,
             artifacts=artifacts,
             dependencies=rendered.dependencies,
-            next_steps=_located(rendered.next_steps, config.output, frozenset(kept.values())),
+            next_steps=_located(rendered.next_steps, config.output, frozenset(kept.values()), self.cwd),
         )
+
+    def check_services(self, artifacts: tuple[GeneratedArtifact, ...]) -> None:
+        """Refuse a module beside the server package with the name of the package that holds its implementations.
+
+        Python would import one of them instead of the other: the models or a module of the user's, or the services.
+        """
+        if not (paths := [artifact.path for artifact in artifacts if artifact.kind == "implementation"]):
+            return
+        module = paths[0].parent.with_suffix(".py")
+        if any(artifact.path == module for artifact in artifacts):
+            found, remedy = "The models module", "name the models otherwise"
+        elif (self.cwd / module).is_file():
+            found, remedy = "This module of yours", "rename the module"
+        else:
+            return
+        parent = self.config.package.rpartition(".")[0]
+        services = f"{parent}.services" if parent else "services"
+        raise APIGenerationError((
+            Diagnostic(
+                code="E_PATH_COLLISION",
+                severity="error",
+                stage="publication",
+                message=(
+                    f"{found} has the name of the {services} package, from which {self.config.package}.main "
+                    f"imports your implementations, and Python would import only one of them: {remedy}, or put the "
+                    "server package under a parent package of its own"
+                ),
+                artifact_path=shown(module, self.cwd).as_posix(),
+            ),
+        ))
 
     def planned(self) -> PlannedTarget:
         models, output = self.models, self.effective.output
@@ -719,7 +767,7 @@ def _warn_leftover(target: PlannedTarget) -> None:
     root = (cwd / package).resolve()
     paths = [artifact.path for artifact in artifacts if artifact.kind == "model"]
     steps = target.project.next_steps
-    home = next((shown(item.path.parent, cwd) for item in steps.implementations), None) if steps else None
+    home = next((shown(item.path.parent, cwd) for item in steps.implementations), None)
     if (models := target.models) is None:
         generated.update(
             location.relative_to(root) for path in paths if (location := (cwd / path).resolve()).is_relative_to(root)
@@ -736,21 +784,38 @@ def publish_target(target: PlannedTarget) -> None:
 
 
 def _unshared(
-    job: str, target: PlannedTarget, models: dict[Path, tuple[str, GeneratedArtifact]]
+    job: str, target: PlannedTarget, models: dict[Path, tuple[str, GeneratedArtifact, Path]]
 ) -> Iterator[GeneratedArtifact]:
     """Yield the artifacts of a job's target that no earlier job plans.
 
-    Jobs that share a models output plan each of its files once, and must plan the same content for it. Jobs whose
-    packages share a directory share its user modules: the first job that plans one writes it.
+    Jobs that share a models output plan each of its files once, and must plan the same content for it. Server packages
+    in one directory would import their implementations from one `services` package, so two of them refuse the run;
+    they share only its initializer, which the first job writes.
     """
     for artifact in target.project.artifacts:
         if artifact.kind not in {"model", "implementation"}:
             yield artifact
             continue
         location = target.cwd / artifact.path
-        owner, planned = models.setdefault(location.parent.resolve(strict=False) / location.name, (job, artifact))
+        owner, planned, package = models.setdefault(
+            location.parent.resolve(strict=False) / location.name, (job, artifact, target.package)
+        )
         if planned is artifact:
             yield artifact
+        elif artifact.kind == "implementation" and location.name != "__init__.py":
+            raise APIGenerationError((
+                Diagnostic(
+                    code="E_PATH_COLLISION",
+                    severity="error",
+                    stage="publication",
+                    message=(
+                        f"The server packages {shown(package, target.cwd).as_posix()} of job '{owner}' and "
+                        f"{shown(target.package, target.cwd).as_posix()} of job '{job}' would both import their "
+                        "implementation from this module: put each server package under a parent package of its own"
+                    ),
+                    artifact_path=shown(artifact.path, target.cwd).as_posix(),
+                ),
+            ))
         elif artifact.kind == "model" and planned.content != artifact.content:
             raise APIGenerationError((
                 Diagnostic(
@@ -773,7 +838,7 @@ def publish_planned(files: Iterable[StagedFile], targets: Sequence[tuple[str, Pl
     with ExitStack() as stack:
         try:
             staged = list(files)
-            models: dict[Path, tuple[str, GeneratedArtifact]] = {}
+            models: dict[Path, tuple[str, GeneratedArtifact, Path]] = {}
             for job, target in targets:
                 staged.extend(_stage(target, _unshared(job, target, models), stack))
             if staged:
@@ -801,14 +866,13 @@ class _Finisher:
         self.models = planner.models
         self.root = planner.root
 
-    def finish(
-        self, rendered: TargetRender, implementations: tuple[RenderedFile, ...]
-    ) -> tuple[tuple[PlannedFile, ...], tuple[PlannedFile, ...]]:
+    def finish(self, rendered: TargetRender) -> tuple[tuple[PlannedFile, ...], tuple[PlannedFile, ...]]:
         """Format, head, and encode every file like a model file, from the model output settings.
 
         Imports used only for type checking move into `TYPE_CHECKING` blocks as they do in the models' modules: a target
-        package is a multi-module output of the model backend, so the backend decides the default. The user modules to
-        write, `implementations`, are formatted the same way, without the generated header, and returned second.
+        package is a multi-module output of the model backend, so the backend decides the default. The implementations
+        are formatted the same way, without the generated header, returned second, and put where a text file holds
+        their `implementation_text`.
         """
         from datamodel_code_generator import (  # noqa: PLC0415
             _build_file_header_parts,  # pyright: ignore[reportPrivateUsage]
@@ -832,6 +896,7 @@ class _Finisher:
             effective.wrap_string_literal,
             skip_string_normalization=not effective.use_double_quotes,
             model_package=self.config.model_package,
+            package=self.config.package,
             custom_formatters=effective.custom_formatters,
             custom_formatters_kwargs=effective.custom_formatters_kwargs,
             encoding=effective.encoding,
@@ -857,8 +922,13 @@ class _Finisher:
                 if _is_python(file.path)
                 else body
             )
-        own = {file.path: formatter.format_code(file.text) for file in implementations}
+        own = {file.path: formatter.format_code(file.text) for file in rendered.implementations}
         self.defer(formatter, texts, formatted, own)
+        for key, value in list(texts.items()):
+            if not _is_python(key):
+                for path, text in own.items():
+                    value = value.replace(implementation_text(path), text.rstrip("\n"))  # noqa: PLW2901
+                texts[key] = value
         return self.planned(texts), self.planned(own)
 
     def planned(self, texts: dict[PurePosixPath, str]) -> tuple[PlannedFile, ...]:

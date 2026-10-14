@@ -12,7 +12,7 @@ from secured.services import OperationsService
 
 
 class Operations(OperationsService[object]):
-    """Implement `get_maybe`, `put_pet`, `get_session`, and `get_custom`."""
+    """Implement the operations operations."""
 
     def get_maybe(
         self,
