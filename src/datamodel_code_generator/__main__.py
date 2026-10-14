@@ -2260,7 +2260,9 @@ def _run_jobs_json(
                         )
                         return Exit.ERROR
                     json.dump(
-                        job_payload.model_dump(mode="json", exclude_unset=True),
+                        job_payload.model_dump(
+                            mode="json", exclude={"result": {"target"}} if job_payload.result.target is None else None
+                        ),
                         batch_spool,
                         ensure_ascii=False,
                         separators=(",", ":"),

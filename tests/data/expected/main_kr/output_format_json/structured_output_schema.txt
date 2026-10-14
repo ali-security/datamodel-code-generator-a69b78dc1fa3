@@ -153,16 +153,9 @@
           "type": "array"
         },
         "target": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TargetPayload"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "The package and runtime dependencies of a server or client generation; absent for models only."
+          "$ref": "#/$defs/TargetPayload",
+          "description": "The package and runtime dependencies of a server or client generation; absent for models only.",
+          "title": "Target"
         }
       },
       "required": [
@@ -542,16 +535,9 @@
           "type": "array"
         },
         "target": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TargetPayload"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "The package and runtime dependencies of a server or client generation; absent for models only."
+          "$ref": "#/$defs/TargetPayload",
+          "description": "The package and runtime dependencies of a server or client generation; absent for models only.",
+          "title": "Target"
         }
       },
       "required": [

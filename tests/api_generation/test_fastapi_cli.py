@@ -1254,8 +1254,12 @@ def test_fastapi_cli_conflicts(
 
 @pytest.mark.parametrize(
     ("case", "baseline", "expected_exit"),
-    [("unchanged", "pets.yaml", Exit.OK), ("changed", "pets-baseline.yaml", Exit.DIFF)],
-    ids=["unchanged", "changed"],
+    [
+        ("unchanged", "pets.yaml", Exit.OK),
+        ("changed", "pets-baseline.yaml", Exit.DIFF),
+        ("form-baseline", "pets-form-baseline.yaml", Exit.DIFF),
+    ],
+    ids=["unchanged", "changed", "form-baseline"],
 )
 @pytest.mark.parametrize("structured", [False, True], ids=["text", "json"])
 def test_fastapi_cli_input_diff(
@@ -1269,12 +1273,14 @@ def test_fastapi_cli_input_diff(
 ) -> None:
     """Compare the models and the server two inputs render through the model input diff, writing nothing.
 
-    The baseline changes a model, a parameter description, and the operation tags, so files change, and a router
-    is generated only from each input.
+    The changed baseline changes a model, a parameter description, and the operation tags, so files change, and a
+    router is generated only from each input. The form baseline takes a form body, which needs python-multipart, while
+    the current input takes JSON, so the JSON target lists the dependencies of the current input alone.
     """
     monkeypatch.chdir(tmp_path)
     _copy(tmp_path)
-    shutil.copy2(CLI / "pets-baseline.yaml", tmp_path / "pets-baseline.yaml")
+    for name in ("pets-baseline.yaml", "pets-form-baseline.yaml"):
+        shutil.copy2(CLI / name, tmp_path / name)
     run_main_and_assert(
         input_path=Path("pets.yaml"),
         output_path=Path("models.py"),
