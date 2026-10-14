@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unicodedata
 from contextlib import ExitStack, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from io import BytesIO, TextIOWrapper
 from pathlib import Path, PurePosixPath
@@ -19,6 +19,7 @@ from datamodel_code_generator._api_types import (
     Diagnostic,
     GeneratedArtifact,
     GeneratedProject,
+    NextSteps,
     OperationRef,
 )
 from datamodel_code_generator._target_documents import (
@@ -103,13 +104,18 @@ class TargetRequest:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TargetRender:
-    """A target's rendered files and the runtime dependencies of its package.
+    """A target's rendered files, the runtime dependencies of its package, and what to do with it next.
 
-    A target raises `APIGenerationError` for its failures instead of returning error diagnostics.
+    `implementations` are the modules of the user's that the package imports, with stubs, under the directory that
+    holds the package; generation writes each only while it is missing. The paths of `next_steps` are relative to the
+    package, and those of its implementations to the directory that holds it. A target raises `APIGenerationError` for
+    its failures instead of returning error diagnostics.
     """
 
     files: tuple[RenderedFile, ...]
     dependencies: tuple[str, ...] = ()
+    implementations: tuple[RenderedFile, ...] = ()
+    next_steps: NextSteps
 
 
 class TargetGenerator(Protocol):
@@ -448,6 +454,24 @@ def _collision_key(path: Path) -> str:
     return unicodedata.normalize("NFC", str(path)).casefold()
 
 
+def _present(location: Path) -> bool:
+    """Return whether a user module exists, as its file or as a package directory that Python imports instead."""
+    return location.exists() or (location.name != "__init__.py" and location.with_suffix("").is_dir())
+
+
+def _located(steps: NextSteps, package: Path, kept: frozenset[Path]) -> NextSteps:
+    """Return a target's next steps with the paths of the files it names, saying which implementations it creates."""
+    home = package.parent
+    return replace(
+        steps,
+        readme=package / steps.readme,
+        entrypoint=None if steps.entrypoint is None else package / steps.entrypoint,
+        implementations=tuple(
+            replace(item, path=(path := home / item.path), created=path not in kept) for item in steps.implementations
+        ),
+    )
+
+
 class _Planner:
     def __init__(  # noqa: PLR0913
         self,
@@ -563,7 +587,15 @@ class _Planner:
                 shown_root=self.shown_root,
             )
         )
-        finished = _Finisher(self).finish(rendered)
+        home = config.output.parent
+        kept = {
+            file.path: home.joinpath(*file.path.parts)
+            for file in rendered.implementations
+            if _present(self.cwd / home.joinpath(*file.path.parts))
+        }
+        finished, written = _Finisher(self).finish(
+            rendered, tuple(file for file in rendered.implementations if file.path not in kept)
+        )
         artifacts = (
             *(self.artifact(self.model_path(artifact), "model", artifact.content) for artifact in models.artifacts),
             *(self.artifact(config.output.joinpath(*file.path.parts), "target", file.content) for file in finished),
@@ -573,9 +605,24 @@ class _Planner:
                 else (self.artifact(models.metadata[0], "model_metadata", models.metadata[1]),)
             ),
             *self.lock_artifacts(),
+            *(
+                GeneratedArtifact(
+                    path=home.joinpath(*file.path.parts), kind="implementation", action="write", content=file.content
+                )
+                for file in written
+            ),
+            *(
+                GeneratedArtifact(path=path, kind="implementation", action="keep", content=b"")
+                for path in kept.values()
+            ),
         )
         self.check_collisions(artifacts)
-        return GeneratedProject(target=generator.kind, artifacts=artifacts, dependencies=rendered.dependencies)
+        return GeneratedProject(
+            target=generator.kind,
+            artifacts=artifacts,
+            dependencies=rendered.dependencies,
+            next_steps=_located(rendered.next_steps, config.output, frozenset(kept.values())),
+        )
 
     def planned(self) -> PlannedTarget:
         models, output = self.models, self.effective.output
@@ -671,6 +718,8 @@ def _warn_leftover(target: PlannedTarget) -> None:
 
     root = (cwd / package).resolve()
     paths = [artifact.path for artifact in artifacts if artifact.kind == "model"]
+    steps = target.project.next_steps
+    home = next((shown(item.path.parent, cwd) for item in steps.implementations), None) if steps else None
     if (models := target.models) is None:
         generated.update(
             location.relative_to(root) for path in paths if (location := (cwd / path).resolve()).is_relative_to(root)
@@ -678,7 +727,7 @@ def _warn_leftover(target: PlannedTarget) -> None:
     elif (location := (cwd / models).resolve()).is_relative_to(root):
         inner = location.relative_to(root)
         generated.update(inner / path.relative_to(models) for path in paths)
-    warn_leftover_files(root, generated, shown(package, cwd))
+    warn_leftover_files(root, generated, shown(package, cwd), home)
 
 
 def publish_target(target: PlannedTarget) -> None:
@@ -691,17 +740,18 @@ def _unshared(
 ) -> Iterator[GeneratedArtifact]:
     """Yield the artifacts of a job's target that no earlier job plans.
 
-    Jobs that share a models output plan each of its files once, and must plan the same content for it.
+    Jobs that share a models output plan each of its files once, and must plan the same content for it. Jobs whose
+    packages share a directory share its user modules: the first job that plans one writes it.
     """
     for artifact in target.project.artifacts:
-        if artifact.kind != "model":
+        if artifact.kind not in {"model", "implementation"}:
             yield artifact
             continue
         location = target.cwd / artifact.path
         owner, planned = models.setdefault(location.parent.resolve(strict=False) / location.name, (job, artifact))
         if planned is artifact:
             yield artifact
-        elif planned.content != artifact.content:
+        elif artifact.kind == "model" and planned.content != artifact.content:
             raise APIGenerationError((
                 Diagnostic(
                     code="E_PATH_COLLISION",
@@ -751,11 +801,14 @@ class _Finisher:
         self.models = planner.models
         self.root = planner.root
 
-    def finish(self, rendered: TargetRender) -> tuple[PlannedFile, ...]:
+    def finish(
+        self, rendered: TargetRender, implementations: tuple[RenderedFile, ...]
+    ) -> tuple[tuple[PlannedFile, ...], tuple[PlannedFile, ...]]:
         """Format, head, and encode every file like a model file, from the model output settings.
 
         Imports used only for type checking move into `TYPE_CHECKING` blocks as they do in the models' modules: a target
-        package is a multi-module output of the model backend, so the backend decides the default.
+        package is a multi-module output of the model backend, so the backend decides the default. The user modules to
+        write, `implementations`, are formatted the same way, without the generated header, and returned second.
         """
         from datamodel_code_generator import (  # noqa: PLC0415
             _build_file_header_parts,  # pyright: ignore[reportPrivateUsage]
@@ -804,17 +857,29 @@ class _Finisher:
                 if _is_python(file.path)
                 else body
             )
-        self.defer(formatter, texts, formatted)
-        texts = {path: _normalized(text) for path, text in texts.items()}
+        own = {file.path: formatter.format_code(file.text) for file in implementations}
+        self.defer(formatter, texts, formatted, own)
+        return self.planned(texts), self.planned(own)
+
+    def planned(self, texts: dict[PurePosixPath, str]) -> tuple[PlannedFile, ...]:
+        """Encode formatted texts as their files hold them: Python files in the model encoding, other text as UTF-8."""
+        encoding = self.effective.encoding
         return tuple(
-            PlannedFile(path=path, content=_written(text, effective.encoding if _is_python(path) else "utf-8"))
+            PlannedFile(path=path, content=_written(_normalized(text), encoding if _is_python(path) else "utf-8"))
             for path, text in texts.items()
         )
 
-    def defer(self, formatter: TargetCodeFormatter, texts: dict[PurePosixPath, str], paths: set[PurePosixPath]) -> None:
+    def defer(
+        self,
+        formatter: TargetCodeFormatter,
+        texts: dict[PurePosixPath, str],
+        paths: set[PurePosixPath],
+        own: dict[PurePosixPath, str],
+    ) -> None:
         """Run the Ruff formatters once over the formatted files, staged beside the target like a model directory.
 
-        The staged package keeps the target directory's name, which Ruff reads as the package name.
+        The staged package keeps the target directory's name, which Ruff reads as the package name, and the user
+        modules, `own`, are staged beside it as they lie beside the package.
         """
         from datamodel_code_generator._format_types import Formatter  # noqa: PLC0415
 
@@ -823,11 +888,14 @@ class _Finisher:
         encoding = self.effective.encoding
         with ExitStack() as stack:
             staged = _staging(stack, self.config.output, self.cwd) / self.root.name
-            for path in paths:
-                (location := staged.joinpath(*path.parts)).parent.mkdir(parents=True, exist_ok=True)
-                location.write_text(texts[path], encoding=encoding)
-            formatter.format_directory(staged)
-            texts.update((path, staged.joinpath(*path.parts).read_text(encoding=encoding)) for path in paths)
+            files = [*((staged, path, texts) for path in paths), *((staged.parent, path, own) for path in own)]
+            for base, path, held in files:
+                (location := base.joinpath(*path.parts)).parent.mkdir(parents=True, exist_ok=True)
+                location.write_text(held[path], encoding=encoding)
+            for directory in dict.fromkeys((staged, *(staged.parent / path.parts[0] for path in own))):
+                formatter.format_directory(directory)
+            for base, path, held in files:
+                held[path] = base.joinpath(*path.parts).read_text(encoding=encoding)
 
 
 def _run_models(input_: _GenerationInput, effective: GenerateConfig, config: TargetConfig) -> _Models:

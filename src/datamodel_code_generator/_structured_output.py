@@ -26,6 +26,7 @@ class GeneratedFilePayload(BaseModel):
 
 
 _Absent: TypeAlias = SkipJsonSchema[None]
+_NEXT_STEPS = ("entrypoint", "implementation", "usage")
 _TARGET_DESCRIPTION = "The package and runtime dependencies of a server or client generation; absent for models only."
 
 
@@ -43,6 +44,50 @@ class TargetPayload(BaseModel):
     dependencies: list[str]
 
 
+class EntrypointPayload(BaseModel):
+    """The entrypoint module of a generated server and the import string of the ASGI application it defines."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    app: str
+    path: str
+
+
+class ImplementationPayload(BaseModel):
+    """A module of the user's that a generated server's entrypoint imports, and the class or function it imports.
+
+    Generation writes the module with stubs only while it is missing; `created` says whether this run wrote it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    module: str
+    name: str
+    path: str
+    created: bool
+
+
+class GeneratedTargetPayload(TargetPayload):
+    """The package a server or client generation writes, its runtime requirements, and what to do with it next."""
+
+    readme: str = Field(description="The README of the package, which describes the next steps.")
+    entrypoint: EntrypointPayload | _Absent = Field(
+        default=None,
+        description="The module that serves a generated server's application; absent for a client.",
+        json_schema_extra=_absent_when_unset,
+    )
+    implementation: list[ImplementationPayload] | _Absent = Field(
+        default=None,
+        description="The modules of the user's that a generated server's entrypoint imports; absent for a client.",
+        json_schema_extra=_absent_when_unset,
+    )
+    usage: str | _Absent = Field(
+        default=None,
+        description="Code that calls the first operation of a generated client; absent for a server.",
+        json_schema_extra=_absent_when_unset,
+    )
+
+
 class GenerationPayload(BaseModel):
     """Structured JSON payload emitted by generation mode --output-format json."""
 
@@ -53,7 +98,7 @@ class GenerationPayload(BaseModel):
     kind: Literal["generation"]
     output: str | None
     files: list[GeneratedFilePayload]
-    target: TargetPayload | _Absent = Field(
+    target: GeneratedTargetPayload | _Absent = Field(
         default=None, description=_TARGET_DESCRIPTION, json_schema_extra=_absent_when_unset
     )
 
@@ -218,8 +263,11 @@ def _dump_json(value: Any) -> str:
 
 
 def _dump_payload(payload: GenerationPayload | CheckOutputPayload) -> str:
-    """Dump a payload, leaving out the target of a model-only run."""
-    return _dump_json(payload.model_dump(mode="json", exclude={"target"} if payload.target is None else None))
+    """Dump a payload, leaving out the target of a model-only run and the keys a server's or client's target lacks."""
+    if (target := payload.target) is None:
+        return _dump_json(payload.model_dump(mode="json", exclude={"target"}))
+    absent = {name for name in _NEXT_STEPS if getattr(target, name, None) is None}
+    return _dump_json(payload.model_dump(mode="json", exclude={"target": absent}))
 
 
 def _schema_with_metadata(schema: dict[str, Any], *, title: str, description: str) -> dict[str, Any]:
@@ -230,7 +278,7 @@ def _schema_with_metadata(schema: dict[str, Any], *, title: str, description: st
 
 
 def generation_output_json(
-    files: list[GeneratedFilePayload], *, output: str | None, target: TargetPayload | None = None
+    files: list[GeneratedFilePayload], *, output: str | None, target: GeneratedTargetPayload | None = None
 ) -> str:
     return _dump_payload(
         GenerationPayload(version=1, format="json", kind="generation", output=output, files=files, target=target)

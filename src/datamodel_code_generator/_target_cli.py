@@ -13,11 +13,11 @@ from datamodel_code_generator._target_documents import shown
 
 if TYPE_CHECKING:
     from argparse import Namespace
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Iterator, Sequence
 
     from datamodel_code_generator.__main__ import OutputComparison
     from datamodel_code_generator._api_generation import PlannedTarget
-    from datamodel_code_generator._api_types import GeneratedProject
+    from datamodel_code_generator._api_types import GeneratedArtifact, GeneratedProject, NextSteps
     from datamodel_code_generator._publication import StagedFile
     from datamodel_code_generator._structured_output import CheckDifferencePayload, TargetPayload
     from datamodel_code_generator._target_config import TargetConfig
@@ -114,13 +114,13 @@ def _run(  # noqa: PLR0913, PLR0917
         planned = plan_target(source, model_config=effective, config=target, generator=generator, timestamp=timestamp)
         if json_output:
             print(_target_json(planned.project, config.output, config.encoding, target))  # noqa: T201
-        batch.append((job, planned, _next_step(target, planned.project.dependencies)))
+        batch.append((job, planned, _next_step(target, planned.project)))
         return _OK
     planned = plan_target(source, model_config=effective, config=target, generator=generator, publish=True)
     project = planned.project
     output = _target_json(project, config.output, config.encoding, target) if json_output else None
     (staged,) = _stage_job_plans((_single_job_plan(config, pyproject_path),))
-    cast("list[Any]", staged.targets).append((job, planned, _next_step(target, project.dependencies)))
+    cast("list[Any]", staged.targets).append((job, planned, _next_step(target, project)))
     if (failure := _publish_or_error((staged,))) is not None:
         return int(failure)
     if output is not None:
@@ -162,11 +162,17 @@ def _target_json(project: GeneratedProject, models: Path, encoding: str, target:
     """Emit rendered model and target text, read like their published files, with the existing generation payload.
 
     As in the model payload, a path is relative to the model output directory; a file outside it has an absolute path.
-    The payload's target names the package and its runtime dependencies.
+    The payload's target names the package, its runtime dependencies, and the next steps with paths of the same base.
     """
     from io import BytesIO, TextIOWrapper  # noqa: PLC0415
 
-    from datamodel_code_generator._structured_output import GeneratedFilePayload, generation_output_json  # noqa: PLC0415
+    from datamodel_code_generator._structured_output import (  # noqa: PLC0415
+        EntrypointPayload,
+        GeneratedFilePayload,
+        GeneratedTargetPayload,
+        ImplementationPayload,
+        generation_output_json,
+    )
 
     artifacts = [
         (
@@ -185,7 +191,25 @@ def _target_json(project: GeneratedProject, models: Path, encoding: str, target:
         )
         for path, content, codec in sorted(artifacts, key=lambda artifact: artifact[0].parts)
     ]
-    return generation_output_json(files, output=models.as_posix(), target=_target_payload(target, project))
+    steps = project.next_steps
+    entrypoint = implementation = None
+    if (app := steps.app) is not None:
+        entrypoint = EntrypointPayload(app=app, path=shown(cast("Path", steps.entrypoint), base).as_posix())
+        implementation = [
+            ImplementationPayload(
+                module=item.module, name=item.name, path=shown(item.path, base).as_posix(), created=item.created
+            )
+            for item in steps.implementations
+        ]
+    payload = GeneratedTargetPayload(
+        package=target.package,
+        dependencies=list(project.dependencies),
+        readme=shown(steps.readme, base).as_posix(),
+        entrypoint=entrypoint,
+        implementation=implementation,
+        usage=steps.usage,
+    )
+    return generation_output_json(files, output=models.as_posix(), target=payload)
 
 
 def _nested(models: Path, target: Path) -> dict[str, tuple[Path, Path]]:
@@ -230,7 +254,7 @@ def _compare_target(
     with TemporaryDirectory(prefix="datamodel-codegen-check-") as directory:
         staging = Path(directory)
         baseline_root = None if baseline is None else staging / "baseline"
-        for artifact in () if baseline is None else baseline.artifacts:
+        for artifact in () if baseline is None else _generated(baseline):
             (staged := _existing(artifact.path, baseline_root)).parent.mkdir(parents=True, exist_ok=True)
             staged.write_bytes(artifact.content)
         rendered = [*project.artifacts, *(() if baseline is None else baseline.artifacts)]
@@ -254,6 +278,7 @@ def _compare_target(
                 staged.write_bytes(artifact.content)
                 if is_directory and path.suffix != ".py":
                     non_python.append((staged, path, encoding if artifact.kind == "model" else "utf-8"))
+            _stage_implementations(project, output if is_directory and baseline is None else None, staged_root)
             comparisons = [(staged_root if is_directory else staged_root / output.name, output, is_directory, encoding)]
             comparisons.extend((staged, path, False, codec) for staged, path, codec in non_python)
             for generated, actual, directory_output, codec in comparisons:
@@ -281,6 +306,28 @@ def _compare_target(
     return OutputComparison(differences=differences, content="".join(contents))
 
 
+def _generated(project: GeneratedProject) -> Iterator[GeneratedArtifact]:
+    """Yield the artifacts of a project that generation owns, leaving out the user modules it writes only once."""
+    return (artifact for artifact in project.artifacts if artifact.kind != "implementation")
+
+
+def _stage_implementations(project: GeneratedProject, output: Path | None, staged_root: Path) -> None:
+    """Stage the user modules inside a compared output directory as they are, so it never lists them as extra.
+
+    A user module beside a server package lies in the models directory that holds the package. Without an output
+    directory to compare with the files at their paths, nothing is staged.
+    """
+    if output is None:
+        return
+    root = output.resolve()
+    for artifact in project.artifacts:
+        if artifact.kind != "implementation":
+            continue
+        if (location := artifact.path.resolve()).is_relative_to(root) and location.is_file():
+            (staged := staged_root / location.relative_to(root)).parent.mkdir(parents=True, exist_ok=True)
+            staged.write_bytes(location.read_bytes())
+
+
 def _existing(path: Path, baseline_root: Path | None) -> Path:
     """Return the file an output path is compared with: itself, or the baseline file staged for it.
 
@@ -289,10 +336,31 @@ def _existing(path: Path, baseline_root: Path | None) -> Path:
     return path if baseline_root is None else baseline_root.joinpath(*Path.cwd().joinpath(path).parts[1:])
 
 
-def _next_step(target: TargetConfig, dependencies: tuple[str, ...]) -> str:
-    """Return the uv command that adds the generated package's runtime dependencies."""
-    arguments = " ".join(f'"{dependency}"' for dependency in dependencies)
-    return f"Add the runtime dependencies of {target.package} to your project:\n  uv add {arguments}"
+def _next_step(target: TargetConfig, project: GeneratedProject) -> str:
+    """Return the uv command that adds the generated package's runtime dependencies, then what to do next.
+
+    A server names the modules to implement, marking those the run creates, and how to run its entrypoint; a client
+    shows a call of its first operation. Both name their README.
+    """
+    arguments = " ".join(f'"{dependency}"' for dependency in project.dependencies)
+    lines = [f"Add the runtime dependencies of {target.package} to your project:", f"  uv add {arguments}"]
+    return "\n".join((*lines, *_steps(project.next_steps)))
+
+
+def _steps(steps: NextSteps) -> list[str]:
+    readme = _shown(steps.readme)
+    if steps.usage is not None:
+        return [
+            "Next steps: call the API with the client:",
+            *(f"  {line}".rstrip() for line in steps.usage.splitlines()),
+            f"See {readme}.",
+        ]
+    files = ", ".join(f"{_shown(item.path)}{' (created)' if item.created else ''}" for item in steps.implementations)
+    return [
+        f"Next steps: {f'implement {files}, then ' if files else ''}run the server:",
+        f"  uv add uvicorn && uv run uvicorn {steps.app} --reload",
+        f'or `fastapi dev {_shown(cast("Path", steps.entrypoint))}` with "fastapi[standard]"; see {readme}.',
+    ]
 
 
 def _base(config: Any, namespace: Namespace, pyproject_path: Path | None, field: str) -> Path:

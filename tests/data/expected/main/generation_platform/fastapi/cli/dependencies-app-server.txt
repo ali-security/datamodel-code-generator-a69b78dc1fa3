@@ -1,2 +1,5 @@
 Add the runtime dependencies of app.server to your project:
   uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16"
+Next steps: implement app/services/pets.py (created), app/services/store.py (created), then run the server:
+  uv add uvicorn && uv run uvicorn app.server.main:app --reload
+or `fastapi dev app/server/main.py` with "fastapi[standard]"; see app/server/README.md.

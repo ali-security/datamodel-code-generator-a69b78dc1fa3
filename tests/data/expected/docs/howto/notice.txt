@@ -1,2 +1,5 @@
 Add the runtime dependencies of server to your project:
   uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16" "python-multipart>=0.0.32"
+Next steps: implement services/photos.py (created), services/authorize.py (created), then run the server:
+  uv add uvicorn && uv run uvicorn server.main:app --reload
+or `fastapi dev server/main.py` with "fastapi[standard]"; see server/README.md.

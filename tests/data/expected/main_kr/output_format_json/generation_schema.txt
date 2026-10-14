@@ -1,6 +1,26 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "EntrypointPayload": {
+      "additionalProperties": false,
+      "description": "The entrypoint module of a generated server and the import string of the ASGI application it defines.",
+      "properties": {
+        "app": {
+          "title": "App",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "app",
+        "path"
+      ],
+      "title": "EntrypointPayload",
+      "type": "object"
+    },
     "GeneratedFilePayload": {
       "additionalProperties": false,
       "description": "One generated file emitted by --output-format json.",
@@ -28,9 +48,9 @@
       "title": "GeneratedFilePayload",
       "type": "object"
     },
-    "TargetPayload": {
+    "GeneratedTargetPayload": {
       "additionalProperties": false,
-      "description": "The package a server or client generation renders and the requirements it needs at run time.",
+      "description": "The package a server or client generation writes, its runtime requirements, and what to do with it next.",
       "properties": {
         "package": {
           "title": "Package",
@@ -42,13 +62,67 @@
           },
           "title": "Dependencies",
           "type": "array"
+        },
+        "readme": {
+          "description": "The README of the package, which describes the next steps.",
+          "title": "Readme",
+          "type": "string"
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/EntrypointPayload",
+          "description": "The module that serves a generated server's application; absent for a client.",
+          "title": "Entrypoint"
+        },
+        "implementation": {
+          "description": "The modules of the user's that a generated server's entrypoint imports; absent for a client.",
+          "items": {
+            "$ref": "#/$defs/ImplementationPayload"
+          },
+          "title": "Implementation",
+          "type": "array"
+        },
+        "usage": {
+          "description": "Code that calls the first operation of a generated client; absent for a server.",
+          "title": "Usage",
+          "type": "string"
         }
       },
       "required": [
         "package",
-        "dependencies"
+        "dependencies",
+        "readme"
       ],
-      "title": "TargetPayload",
+      "title": "GeneratedTargetPayload",
+      "type": "object"
+    },
+    "ImplementationPayload": {
+      "additionalProperties": false,
+      "description": "A module of the user's that a generated server's entrypoint imports, and the class or function it imports.\n\nGeneration writes the module with stubs only while it is missing; `created` says whether this run wrote it.",
+      "properties": {
+        "module": {
+          "title": "Module",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "created": {
+          "title": "Created",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "module",
+        "name",
+        "path",
+        "created"
+      ],
+      "title": "ImplementationPayload",
       "type": "object"
     }
   },
@@ -89,7 +163,7 @@
       "type": "array"
     },
     "target": {
-      "$ref": "#/$defs/TargetPayload",
+      "$ref": "#/$defs/GeneratedTargetPayload",
       "description": "The package and runtime dependencies of a server or client generation; absent for models only.",
       "title": "Target"
     }

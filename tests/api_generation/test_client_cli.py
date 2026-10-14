@@ -199,10 +199,11 @@ def test_client_cli_precedence(
     """
     monkeypatch.chdir(tmp_path)
     _copy(tmp_path, "pyproject-precedence.toml")
-    run_main_with_args(arguments, capsys=capsys, expected_stderr=DEPENDENCIES)
+    run_main_with_args(arguments)
+    notice = capsys.readouterr().err
     report = "".join(_methods(path, tmp_path) for path in sorted(tmp_path.glob("*/resources/pets/_sync.py")))
     assert_output(
-        f"$ datamodel-codegen {' '.join(arguments)}\n{report}", EXPECTED / "cli" / "precedence" / f"{name}.txt"
+        f"$ datamodel-codegen {' '.join(arguments)}\n{notice}{report}", EXPECTED / "cli" / "precedence" / f"{name}.txt"
     )
 
 
@@ -217,7 +218,8 @@ def test_client_cli_pyproject_paths(
     work.mkdir(parents=True)
     _copy(project, "pyproject-paths.toml")
     monkeypatch.chdir(work)
-    run_main_with_args([], capsys=capsys, expected_stderr=DEPENDENCIES)
+    run_main_with_args([])
+    notices = capsys.readouterr().err
     helpers = (
         (CLI / "protocols.json")
         .read_text(encoding="utf-8")
@@ -231,12 +233,12 @@ def test_client_cli_pyproject_paths(
             *("--client-output", "service", "--client-protocols", helpers),
             *("--client-operations", '{"../options.yaml#/paths/~1pets/get": {"name": "find_pets"}}'),
         ],
-        capsys=capsys,
-        expected_stderr=DEPENDENCIES,
     )
+    notices += capsys.readouterr().err
     packages = sorted(path.parents[1] for path in tmp_path.rglob("protocols/_helpers.py"))
     assert_output(
-        "".join(_methods(path / "resources" / "pets" / "_sync.py", tmp_path) for path in packages),
+        notices.replace(project.as_posix(), "<project>")
+        + "".join(_methods(path / "resources" / "pets" / "_sync.py", tmp_path) for path in packages),
         EXPECTED / "cli" / "pyproject-paths.txt",
     )
 
@@ -249,7 +251,11 @@ def test_client_cli_pyproject_protocols_file(
     work.mkdir(parents=True)
     _copy(project, "pyproject-protocols.toml")
     monkeypatch.chdir(work)
-    run_main_with_args([], capsys=capsys, expected_stderr=DEPENDENCIES)
+    run_main_with_args([])
+    assert_output(
+        capsys.readouterr().err.replace(project.as_posix(), "<project>"),
+        EXPECTED / "cli" / "project-notice.txt",
+    )
     assert_file_content(project / "client" / "protocols" / "_helpers.py", "cli/options/protocols/_helpers.py")
 
 
@@ -308,8 +314,10 @@ def test_client_cli_json_file_documents(
     work.mkdir(parents=True)
     _json_files(project, *pyproject)
     monkeypatch.chdir(work)
-    run_main_with_args(
-        [argument.format(project=project) for argument in arguments], capsys=capsys, expected_stderr=DEPENDENCIES
+    run_main_with_args([argument.format(project=project) for argument in arguments])
+    assert_output(
+        capsys.readouterr().err.replace(project.as_posix(), "<project>"),
+        EXPECTED / "cli" / "json-files" / "notice.txt",
     )
     assert_file_content(project / "client" / "protocols" / "_helpers.py", "cli/json-files/_helpers.py")
     assert_output(_methods(project / SYNC, tmp_path), EXPECTED / "cli" / "json-files" / "documents.txt")

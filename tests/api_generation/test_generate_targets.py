@@ -96,7 +96,12 @@ def _as_text(root: Path, *path: str) -> Path:
 
 
 def _compare_written(modules: Any, root: Path) -> None:
-    """Compare every returned file with the file a write run left at the same path under root."""
+    """Compare every returned file with the file a write run left at the same path under root.
+
+    The write run also writes the stubs of the user's `services` modules, which a run without an output never returns.
+    """
+    for services in [path for path in root.rglob("services") if path.is_dir()]:
+        shutil.rmtree(services)
     python, other = _split(modules)
     assert_generated_modules_output(python, root)
     for path, text in other.items():

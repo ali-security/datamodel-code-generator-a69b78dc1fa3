@@ -268,9 +268,10 @@ generate(
 <!-- fmt: on -->
 <!-- END AUTO-GENERATED DOC EXAMPLE: using-as-module.server -->
 
-With an `output`, `generate()` writes the models and the package together and returns `None`. Without one, it writes
-nothing but the model metadata and a remote lock update, and returns `GeneratedModules` with every model and package
-file, each under the path its import path implies: `server_model_package="models"` gives `("models.py",)`, or
+With an `output`, `generate()` writes the models and the package together and returns `None`; for a server, it also
+writes each missing module of the `services` package beside the package once, with stubs, as the command line does.
+Without one, it writes nothing but the model metadata and a remote lock update, no stubs among them, and returns
+`GeneratedModules` with every model and package file, each under the path its import path implies: `server_model_package="models"` gives `("models.py",)`, or
 `("models", "__init__.py")` and the other modules of modular models, and `server_package="server"` gives
 `("server", "application.py")`, `("server", "README.md")`, and so on. These are the files a run with `output` and
 `server_output` in the working directory writes; `server_output` is not used. The run renders the files in a private

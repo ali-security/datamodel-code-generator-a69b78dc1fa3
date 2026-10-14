@@ -188,17 +188,65 @@ def error_handlers(exception_handlers: Mapping[Any, Any] | None) -> dict[Any, An
     return {RequestValidationError: validation_error_handler, **(exception_handlers or {})}
 
 
-def checked(method: MethodT, label: str, *, asynchronous: bool = False) -> MethodT:
-    """Return a service method for its operation, refusing a coroutine function where a plain one runs or the reverse.
+def checked(
+    method: MethodT, label: str, keywords: tuple[str, ...] | None = None, *, asynchronous: bool = False
+) -> MethodT:
+    """Return a service method for its operation, refusing one that its route cannot call as the route calls it.
 
-    A mismatch would skip the method body or fail after it ran, so it stops the registration.
+    A coroutine function where a plain one runs, or the reverse, would skip the method body or fail after it ran, and a
+    signature that does not take the keyword arguments the route passes, `keywords`, would fail on every request:
+    either stops the registration. A wider signature, with defaults or `**kwargs`, takes them. A route of a custom
+    template that names no keywords is not checked for them.
     """
-    if _coroutine_function(method) is asynchronous:
+    if _coroutine_function(method) is not asynchronous:
+        kinds = ("a coroutine function", "a plain method")
+        found, needed = reversed(kinds) if asynchronous else kinds
+        msg = f"{label} is {found}, but the operation's handler mode needs {needed}"
+        raise TypeError(msg)
+    if keywords is None:
         return method
-    kinds = ("a coroutine function", "a plain method")
-    found, needed = reversed(kinds) if asynchronous else kinds
-    msg = f"{label} is {found}, but the operation's handler mode needs {needed}"
-    raise TypeError(msg)
+    try:
+        inspect.signature(cast("Callable[..., object]", method)).bind(**dict.fromkeys(keywords))
+    except TypeError as error:
+        name = getattr(method, "__qualname__", repr(method))
+        passed = ", ".join(keywords) or "none"
+        msg = f"{label}, {name}, cannot take the keyword arguments its route passes ({passed}): {error}"
+        raise TypeError(msg) from None
+    return method
+
+
+def missing_implementation(error: ImportError, implementations: Mapping[str, str]) -> None:
+    """Raise an error naming what to write when the entrypoint could not import a module or name of yours.
+
+    `implementations` maps each module the entrypoint imports to the class or function it imports from it. Any other
+    import error, such as one in a module that an implementation imports, returns for the caller to re-raise unchanged.
+    """
+    package = __name__.partition("._runtime.")[0]
+    entrypoint = f"{package}.main"
+    readme = f"see Next steps in {package.replace('.', '/')}/README.md"
+    name = error.name or ""
+    if isinstance(error, ModuleNotFoundError):
+        missing = {
+            module: item for module, item in implementations.items() if name in {module, module.rpartition(".")[0]}
+        }
+        if not missing:
+            return
+        files = [] if name in missing else [f"{name.replace('.', '/')}/__init__.py"]
+        files.extend(f"{_path(module)} defining {item}" for module, item in missing.items())
+        msg = (
+            f"No module named {name!r}: create {', '.join(files)}, which {entrypoint} imports. Generating the "
+            f"server again writes missing modules with stubs; {readme}"
+        )
+    elif (item := implementations.get(name)) is not None and getattr(error, "name_from", item) == item:
+        msg = f"{name} defines no {item}, which {entrypoint} imports: define it in {_path(name)}; {readme}"
+    else:
+        return
+    raise ImportError(msg, name=name) from error
+
+
+def _path(module: str) -> str:
+    """Return the file of a module, relative to the directory its top-level package is in."""
+    return f"{module.replace('.', '/')}.py"
 
 
 def _is_sequence(value: object) -> TypeIs[Sequence[object]]:

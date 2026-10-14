@@ -42,6 +42,7 @@ CLI = SOURCE / "cli"
 EXPECTED = DATA / "expected" / "main" / "generation_platform" / "fastapi"
 PACKAGE = EXPECTED / "packages" / "pets" / "pydantic_v2_BaseModel"
 DEPENDENCIES = EXPECTED / "cli" / "dependencies.txt"
+REGENERATED = EXPECTED / "cli" / "dependencies-regenerated.txt"
 SHARED_DEPENDENCIES = EXPECTED / "cli" / "shared-models-dependencies.txt"
 PYTHON = ["--target-python-version", "3.11"]
 SCOPES = ["--openapi-scopes", "schemas", "api"]
@@ -168,7 +169,7 @@ def test_fastapi_cli_generate(
         input_file_type="openapi",
         extra_args=_server(),
         capsys=capsys,
-        expected_stderr=DEPENDENCIES.read_text(encoding="utf-8"),
+        expected_stderr=REGENERATED.read_text(encoding="utf-8"),
         assert_func=assert_file_content,
         expected_file=PACKAGE / "models.py",
     )
@@ -270,7 +271,8 @@ def test_fastapi_cli_check_outputs(
     which warns about the files it leaves in place and no longer generates.
     A case can name its model and server outputs, with the arguments that give their import paths. A model
     directory in such a nested layout is not importable under its own name, as the model checks of the helper
-    import it, so they are left out for it.
+    import it, so they are left out for it. The notice of the first generation marks the service stubs it creates,
+    and that of a generation over an earlier one does not.
     """
     case = CHECK_CASES[case_name]
     monkeypatch.chdir(tmp_path)
@@ -278,6 +280,7 @@ def test_fastapi_cli_check_outputs(
     output = Path(case.get("model", "models" if case.get("modular") else "models.py"))
     server = case.get("server", "server")
     notice = EXPECTED / "cli" / case.get("notice", DEPENDENCIES.name)
+    repeated = notice if case.get("fresh") else EXPECTED / "cli" / case.get("regenerated", REGENERATED.name)
     source = Path("pets.yaml")
     if case.get("modular") or case.get("source"):
         shutil.copytree(DATA / "generation_platform" / "targets" / "spec", tmp_path / "spec")
@@ -323,7 +326,7 @@ def test_fastapi_cli_check_outputs(
                 output_path=output,
                 extra_args=_server(*options, *case.get("options", ()), output=server),
                 capsys=capsys,
-                expected_stderr=notice.read_text(encoding="utf-8"),
+                expected_stderr=repeated.read_text(encoding="utf-8"),
                 skip_code_validation=unvalidated,
             )
     assert_output(
@@ -513,20 +516,25 @@ def test_fastapi_cli_unselected_pyproject(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 @pytest.mark.parametrize(
-    ("name", "arguments"),
+    ("name", "arguments", "notice"),
     [
-        ("base", []),
-        ("profile", ["--profile", "async"]),
-        ("cli-over-profile", ["--profile", "async", "--server-handler-mode", "sync"]),
-        ("cli-table", ["--server-handler-modes", '{"/paths/~1store~1inventory/get": "async"}']),
-        ("cli-empty-table", ["--profile", "async", "--server-handler-modes", "{}"]),
-        ("profile-output", ["--profile", "elsewhere"]),
-        ("cli-output", ["--profile", "elsewhere", "--server-output", "service"]),
+        ("base", [], DEPENDENCIES.name),
+        ("profile", ["--profile", "async"], DEPENDENCIES.name),
+        ("cli-over-profile", ["--profile", "async", "--server-handler-mode", "sync"], DEPENDENCIES.name),
+        (
+            "cli-table",
+            ["--server-handler-modes", '{"/paths/~1store~1inventory/get": "async"}'],
+            DEPENDENCIES.name,
+        ),
+        ("cli-empty-table", ["--profile", "async", "--server-handler-modes", "{}"], DEPENDENCIES.name),
+        ("profile-output", ["--profile", "elsewhere"], "dependencies-elsewhere.txt"),
+        ("cli-output", ["--profile", "elsewhere", "--server-output", "service"], "dependencies-service.txt"),
     ],
 )
 def test_fastapi_cli_precedence(
     name: str,
     arguments: list[str],
+    notice: str,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -537,7 +545,8 @@ def test_fastapi_cli_precedence(
     """
     monkeypatch.chdir(tmp_path)
     _copy(tmp_path, "pyproject-precedence.toml")
-    run_main_with_args(arguments, capsys=capsys, expected_stderr=DEPENDENCIES.read_text(encoding="utf-8"))
+    expected = (EXPECTED / "cli" / notice).read_text(encoding="utf-8")
+    run_main_with_args(arguments, capsys=capsys, expected_stderr=expected)
     report = "".join(_methods(path) for path in sorted(tmp_path.glob("*/services.py")))
     assert_output(
         f"$ datamodel-codegen {' '.join(arguments)}\n{report}", EXPECTED / "cli" / "precedence" / f"{name}.txt"
@@ -558,11 +567,12 @@ def test_fastapi_cli_pyproject_paths(
     shutil.copy2(CLI / "names.json", project / "names.json")
     (work / "names.json").write_text('{"/paths/~1pets/get": "find_pets"}', encoding="utf-8")
     monkeypatch.chdir(work)
-    run_main_with_args([], capsys=capsys, expected_stderr=DEPENDENCIES.read_text(encoding="utf-8"))
+    notice = (EXPECTED / "cli" / "dependencies-project.txt").read_text(encoding="utf-8")
+    run_main_with_args([], capsys=capsys, expected_stderr=notice.format(project=project.as_posix()))
     run_main_with_args(
         ["--server-output", "service", "--server-operation-names", "names.json"],
         capsys=capsys,
-        expected_stderr=DEPENDENCIES.read_text(encoding="utf-8"),
+        expected_stderr=(EXPECTED / "cli" / "dependencies-service.txt").read_text(encoding="utf-8"),
     )
     services = sorted(tmp_path.rglob("services.py"), key=lambda path: path.relative_to(tmp_path).as_posix())
     assert_output(
@@ -600,7 +610,8 @@ def test_fastapi_cli_json_file_documents(
     for name in pyproject:
         shutil.copy2(CLI / name, project / "pyproject.toml")
     monkeypatch.chdir(work)
-    run_main_with_args(arguments, capsys=capsys, expected_stderr=DEPENDENCIES.read_text(encoding="utf-8"))
+    notice = (EXPECTED / "cli" / "dependencies-project.txt").read_text(encoding="utf-8")
+    run_main_with_args(arguments, capsys=capsys, expected_stderr=notice.format(project=project.as_posix()))
     assert_output(_methods(project / "server" / "services.py"), EXPECTED / "cli" / "json-file-documents.txt")
 
 
@@ -664,7 +675,7 @@ def test_fastapi_cli_include_paths(
         extra_args=_server(*include, output="service"),
         copy_files=_inputs(tmp_path),
         capsys=capsys,
-        expected_stderr=DEPENDENCIES.read_text(encoding="utf-8"),
+        expected_stderr=(EXPECTED / "cli" / "dependencies-include-paths.txt").read_text(encoding="utf-8"),
         file_should_not_exist=tmp_path / "server",
     )
     assert_output(
@@ -1594,7 +1605,7 @@ def test_fastapi_cli_jobs_json_paths(
     run_main_with_args(
         ["--all-jobs", "--output-format", "json"],
         capsys=capsys,
-        expected_stderr=DEPENDENCIES.read_text(encoding="utf-8") * 2,
+        expected_stderr=(EXPECTED / "cli" / "dependencies-layout-jobs.txt").read_text(encoding="utf-8"),
     )
     run_main_with_args(
         ["--all-jobs", "--check", "--output-format", "json"],
@@ -2349,3 +2360,36 @@ def test_fastapi_cli_model_error_context(
         expected_stdout_path=EXPECTED / "cli" / "json" / "error-empty.txt" if structured else None,
         output_should_not_exist=True,
     )
+
+
+def test_fastapi_cli_implementation_stubs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Write each missing service module once with stubs, never over an edit, and never from a check or an input diff.
+
+    Neither --check nor --diff-against reports a missing module; the next generation writes it and names it created.
+    """
+    monkeypatch.chdir(tmp_path)
+    _copy(tmp_path)
+    arguments = ["--input", "pets.yaml", "--input-file-type", "openapi", "--output", "models.py", *_server()]
+    run_main_with_args(arguments, capsys=capsys, expected_stderr=DEPENDENCIES.read_text(encoding="utf-8"))
+    services = tmp_path / "services"
+    pets = services / "pets.py"
+    pets.write_text("# edited\n", encoding="utf-8")
+    (services / "store.py").unlink()
+    lines: list[str] = []
+    for options in (["--check"], ["--diff-against", "pets.yaml"]):
+        run_main_with_args([*arguments, *options], capsys=capsys, assert_no_stderr=True)
+        lines.append(f"{options[0]}: services {sorted(path.name for path in services.iterdir())}")
+    run_main_with_args([*arguments, "--output-format", "json"])
+    captured = capsys.readouterr()
+    target = json.loads(captured.out)["target"]
+    lines.extend((
+        (
+            f"generate: services {sorted(path.name for path in services.iterdir())}; "
+            f"pets {pets.read_text(encoding='utf-8')!r}"
+        ),
+        captured.err.rstrip(),
+        json.dumps({key: target[key] for key in ("readme", "entrypoint", "implementation")}, indent=2),
+    ))
+    assert_output("\n".join(lines) + "\n", EXPECTED / "cli" / "implementation-stubs.txt")

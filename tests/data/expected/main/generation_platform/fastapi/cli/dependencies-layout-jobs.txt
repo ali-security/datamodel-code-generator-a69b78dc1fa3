@@ -1,0 +1,10 @@
+Add the runtime dependencies of server to your project:
+  uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16"
+Next steps: implement nested/services/pets.py (created), nested/services/store.py (created), then run the server:
+  uv add uvicorn && uv run uvicorn server.main:app --reload
+or `fastapi dev nested/server/main.py` with "fastapi[standard]"; see nested/server/README.md.
+Add the runtime dependencies of server to your project:
+  uv add "fastapi>=0.141.1" "pydantic>=2.14.0" "typing-extensions>=4.16"
+Next steps: implement modular/services/store.py (created), then run the server:
+  uv add uvicorn && uv run uvicorn server.main:app --reload
+or `fastapi dev modular/server/main.py` with "fastapi[standard]"; see modular/server/README.md.
