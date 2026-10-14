@@ -1491,10 +1491,11 @@ class ModelResolver:  # noqa: PLR0904
 
         For PrimaryFirst strategy, when a primary definition in the main file
         has the same name as an external reference, rename the external reference
-        so the primary definition can use the clean name.
+        so the primary definition can use the clean name. A yielding reference is left to give its name way
+        when the primary definition takes it.
         """
         for ref_path, ref in self.references.items():
-            if ref.name == name and ref_path != current_path:
+            if ref.name == name and ref_path != current_path and not self.is_yielding(ref):
                 # Check if this is an external reference (different file)
                 ref_file = ref_path.split("#")[0]
                 current_file = current_path.split("#", maxsplit=1)[0]
@@ -1629,12 +1630,12 @@ class ModelResolver:  # noqa: PLR0904
         return self.references.get(self.resolve_ref(path))
 
     def delete(self, path: Sequence[str] | str) -> None:
-        """Delete a reference by path if it exists."""
+        """Delete a reference by path if it exists, together with the name it yields."""
         resolved = self.resolve_ref(path)
-        if resolved in self.references:
-            old_name = self.references[resolved].name
-            del self.references[resolved]
-            self._remove_reference_name(old_name)
+        if (reference := self.references.pop(resolved, None)) is not None:
+            if self.is_yielding(reference):
+                del self._yielding_names[reference.name]
+            self._remove_reference_name(reference.name)
 
     def default_class_name_generator(self, name: str) -> str:
         """Generate a valid class name from a string."""
