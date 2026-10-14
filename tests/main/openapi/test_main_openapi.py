@@ -3626,6 +3626,286 @@ def test_main_openapi_nullable_map_value_types_parameters_scope(output_file: Pat
     )
 
 
+@pytest.mark.parametrize(
+    ("output_model_type", "expected_directory"),
+    [
+        pytest.param(DataModelType.PydanticV2BaseModel.value, "pydantic_v2", id="pydantic-v2"),
+        pytest.param(DataModelType.PydanticV2Dataclass.value, "pydantic_v2_dataclass", id="pydantic-v2-dataclass"),
+        pytest.param(DataModelType.DataclassesDataclass.value, "dataclass", id="dataclass"),
+        pytest.param(DataModelType.TypingTypedDict.value, "typed_dict", id="typed-dict"),
+        pytest.param(DataModelType.MsgspecStruct.value, "msgspec", id="msgspec"),
+    ],
+)
+def test_main_openapi_nullable_map_value_names(
+    output_dir: Path, output_model_type: str, expected_directory: str
+) -> None:
+    """Keep the names of nullable maps and of later models, and name the map value models after them."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_names.yaml",
+        output_path=output_dir,
+        input_file_type="openapi",
+        expected_directory=EXPECTED_OPENAPI_PATH / "nullable_map_value_names" / expected_directory,
+        extra_args=[
+            "--output-model-type",
+            output_model_type,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+def test_main_openapi_nullable_map_value_layout_collapse_root_models(output_file: Path) -> None:
+    """Write one file, as before typed values, when typing the values of collapsed dotted maps needs a module."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_layout.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="nullable_map_value_layout/collapse_root_models.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--collapse-root-models",
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+def test_main_openapi_nullable_map_value_layout_modules(output_dir: Path) -> None:
+    """Write the modules written before typed values when typing the values of dotted maps needs another one."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_layout.yaml",
+        output_path=output_dir,
+        input_file_type="openapi",
+        expected_directory=EXPECTED_OPENAPI_PATH / "nullable_map_value_layout" / "modules",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("reuse_args", "expected_file"),
+    [
+        pytest.param(["--reuse-model"], "nullable_map_value_reuse.py", id="reuse-model"),
+        pytest.param(
+            ["--reuse-model", "--collapse-reuse-models"],
+            "nullable_map_value_reuse_collapse_reuse_models.py",
+            id="collapse-reuse-models",
+        ),
+    ],
+)
+def test_main_openapi_nullable_map_value_reuse_model(
+    output_file: Path, reuse_args: list[str], expected_file: str
+) -> None:
+    """Reuse the model a map value duplicates, so models and nullable maps are reused as before typed values."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_reuse.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=expected_file,
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            *reuse_args,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+def test_main_openapi_nullable_map_value_import_cycle(output_dir: Path) -> None:
+    """Keep each model in the module it had before typed values when a typed value would join an import cycle."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_cycle.yaml",
+        output_path=output_dir,
+        input_file_type="openapi",
+        expected_directory=EXPECTED_OPENAPI_PATH / "nullable_map_value_cycle" / "pydantic_v2",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+def test_main_openapi_nullable_map_value_import_cycle_warnings(output_dir: Path) -> None:
+    """Warn once, although the values are parsed again untyped."""
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        run_main_and_assert(
+            input_path=OPEN_API_DATA_PATH / "nullable_map_value_cycle.yaml",
+            output_path=output_dir,
+            input_file_type="openapi",
+            expected_directory=EXPECTED_OPENAPI_PATH / "nullable_map_value_cycle" / "pydantic_v2_dataclass",
+            extra_args=[
+                "--output-model-type",
+                DataModelType.PydanticV2Dataclass.value,
+                "--field-constraints",
+                "--disable-timestamp",
+                "--formatters",
+                "builtin",
+            ],
+        )
+    assert_output(
+        "".join(f"{record.message}\n" for record in recorded if record.category is UserWarning),
+        EXPECTED_OPENAPI_PATH / "nullable_map_value_cycle" / "pydantic_v2_dataclass_warnings.txt",
+    )
+
+
+@pytest.mark.isolate_builtin_formatter_config
+def test_main_openapi_nullable_map_value_stdout(capsys: pytest.CaptureFixture[str]) -> None:
+    """Print one module, as before typed values, when the stdout output folds invalid module names."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_stdout.yaml",
+        output_path=None,
+        input_file_type="openapi",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        expected_stdout_path=EXPECTED_OPENAPI_PATH / "nullable_map_value_stdout.py",
+        capsys=capsys,
+    )
+
+
+def test_main_openapi_nullable_map_value_recursive_collapse_root_models(output_file: Path) -> None:
+    """Collapse a nullable map that only its typed values make recursive, as before typed values."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_recursive.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="nullable_map_value_recursive_collapse_root_models.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--collapse-root-models",
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+def test_main_openapi_nullable_map_value_module_names(output_dir: Path) -> None:
+    """Keep the names a module gives its maps and models when root models share them, naming map values after."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_module_names.yaml",
+        output_path=output_dir,
+        input_file_type="openapi",
+        expected_directory=EXPECTED_OPENAPI_PATH / "nullable_map_value_module_names",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+def test_main_openapi_nullable_map_value_read_write_models(output_file: Path) -> None:
+    """Name the request and response models of a map value after those of the models named before it."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_read_write.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="nullable_map_value_read_write.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--read-only-write-only-model-type",
+            "request-response",
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("model_name_map", "expected_file"),
+    [
+        pytest.param('{"Tags": "Label"}', "nullable_map_value_model_name_map/schema_name.py", id="schema-name"),
+        pytest.param('{"Tags1": "Entry"}', "nullable_map_value_model_name_map/value_name.py", id="value-name"),
+    ],
+)
+def test_main_openapi_nullable_map_value_model_name_map(
+    output_file: Path, model_name_map: str, expected_file: str
+) -> None:
+    """Rename by a model name the model that had it before typed values, and a map value by its final name."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_model_name_map.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=expected_file,
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--model-name-map",
+            model_name_map,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+@pytest.mark.parametrize("class_name", ["Tags", "Tags1"])
+def test_main_openapi_nullable_map_value_class_keyed_options(output_file: Path, class_name: str) -> None:
+    """Apply options keyed by class name to the model with that final name, not to a map value named so before."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_class_keys.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=f"nullable_map_value_class_keys/{class_name}.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--base-class-map",
+            json.dumps({class_name: "base.Base"}),
+            "--aliases",
+            json.dumps({f"{class_name}.label": "tag_label"}),
+            "--serialization-aliases",
+            json.dumps({f"{class_name}.color": "colour"}),
+            "--default-values",
+            json.dumps({f"{class_name}.color": "red"}),
+            "--extra-template-data",
+            str(OPEN_API_DATA_PATH / "nullable_map_value_class_keys" / f"{class_name}.json"),
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+    )
+
+
 def test_main_openapi_ref_nullable_strict_nullable(output_file: Path) -> None:
     """Test that nullable attribute from $ref schema is propagated."""
     run_main_and_assert(
