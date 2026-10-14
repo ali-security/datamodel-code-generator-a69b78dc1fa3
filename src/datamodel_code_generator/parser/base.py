@@ -569,6 +569,7 @@ class ParserRunContext:
     preserve_circular_root_models: bool = False
     suppress_parse_warnings: bool = False
     untyped_nullable_maps: bool = False
+    yielding_names: tuple[tuple[str, tuple[str, str | None]], ...] = ()
 
 
 _DEFAULT_PARSER_RUN_CONTEXT = ParserRunContext()
@@ -2597,6 +2598,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         preserve_circular_root_models: bool = False,
         suppress_parse_warnings: bool = False,
         untyped_nullable_maps: bool = False,
+        yielding_names: tuple[tuple[str, tuple[str, str | None]], ...] = (),
     ) -> None:
         """Configure parser run state without exposing implementation attributes."""
         context = ParserRunContext(
@@ -2606,8 +2608,10 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             preserve_circular_root_models=preserve_circular_root_models,
             suppress_parse_warnings=suppress_parse_warnings,
             untyped_nullable_maps=untyped_nullable_maps,
+            yielding_names=yielding_names,
         )
         self._run_context = None if context == _DEFAULT_PARSER_RUN_CONTEXT else context
+        self.model_resolver.assigned_yielding_names = dict(yielding_names)
 
     def _configure_legacy_run_context_attribute(self, attribute: str, value: object) -> None:
         """Keep historical private state writes as a parser-local compatibility facade."""
@@ -2629,6 +2633,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             suppress_parse_warnings=context.suppress_parse_warnings,
             prefetched_source=context.prefetched_source,
             untyped_nullable_maps=context.untyped_nullable_maps,
+            yielding_names=context.yielding_names,
         )
 
     @property
@@ -2815,6 +2820,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         self.reuse_model: bool = config.reuse_model
         self._typed_map_value_reference_ids: set[int] = set()
         self.typed_nullable_maps = False
+        self.yielding_names_to_assign: tuple[tuple[str, tuple[str, str | None]], ...] = ()
         self.typed_nullable_map_reference_ids: set[int] = set()
         self.typed_map_values_may_move_models = False
         self.model_placement: dict[ModulePath, frozenset[str]] = {}
@@ -3440,6 +3446,20 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         # Batch removal: O(n) instead of O(n²)
         if models_to_remove:
             models[:] = [m for m in models if m not in models_to_remove]
+
+    def _names_have_class_keyed_options(self, names: set[str]) -> bool:
+        """Return whether an option keyed by class name, or by a class-scoped field, names one of ``names``.
+
+        These options are looked up while models are created, under the names models have then.
+        """
+        config = self.config
+        class_keys = {*(config.base_class_map or ()), *(config.extra_template_data or ()), *(config.validators or ())}
+        scoped_keys = (
+            *(config.aliases or ()),
+            *(config.serialization_aliases or ()),
+            *(config.default_value_overrides or ()),
+        )
+        return bool(names & class_keys) or any(key.rpartition(".")[0] in names for key in scoped_keys)
 
     def _typed_map_values_last(self, models: list[DataModel]) -> list[DataModel]:
         """Order models of typed map values after the others, so the others stay canonical and keep their names."""
@@ -7617,6 +7637,8 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         finally:
             self._close_http_fetch_session()
         self._typed_map_value_reference_ids = self.model_resolver.settle_yielding_names()
+        if (changes := self.model_resolver.yielding_name_changes) and self._names_have_class_keyed_options(changes):
+            self.yielding_names_to_assign = tuple(self.model_resolver.final_yielding_names.items())
         if suppress_parse_warnings:
             self._run_with_suppressed_warnings(self._report_parse_diagnostics)
         else:

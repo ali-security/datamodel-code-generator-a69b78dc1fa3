@@ -58,6 +58,7 @@ EXPECTED = Path(__file__).parents[1] / "data/expected/main/generation_platform/t
         "python-floor",
         "local-references",
         "nullable-map-layout",
+        "nullable-map-class-keys",
     ],
 )
 def test_target_render(

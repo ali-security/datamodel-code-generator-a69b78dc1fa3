@@ -2016,6 +2016,7 @@ def _build_generation_parser(  # noqa: PLR0913, PLR0917
     preserve_circular_root_models: bool = False,
     suppress_parse_warnings: bool = False,
     untyped_nullable_maps: bool = False,
+    yielding_names: tuple[tuple[str, tuple[str, str | None]], ...] = (),
     reference_cache: Any | None = None,
     python_type_expressions: _PythonTypeExpressions | None = None,
     openapi_parser_factory: OpenAPIParserFactory | None = None,
@@ -2050,6 +2051,7 @@ def _build_generation_parser(  # noqa: PLR0913, PLR0917
         preserve_circular_root_models=preserve_circular_root_models,
         suppress_parse_warnings=suppress_parse_warnings,
         untyped_nullable_maps=untyped_nullable_maps,
+        yielding_names=yielding_names,
     )
     return parser
 
@@ -2074,6 +2076,7 @@ def _build_generation_retry_parser(  # noqa: PLR0913, PLR0917
     preserve_circular_root_models: bool = False,
     suppress_parse_warnings: bool = False,
     untyped_nullable_maps: bool = False,
+    yielding_names: tuple[tuple[str, tuple[str, str | None]], ...] = (),
     openapi_parser_factory: OpenAPIParserFactory | None = None,
 ) -> tuple[Any, DataModelSet, bool]:
     """Build one fresh parser for an internal compatibility retry."""
@@ -2105,6 +2108,7 @@ def _build_generation_retry_parser(  # noqa: PLR0913, PLR0917
         preserve_circular_root_models=preserve_circular_root_models,
         suppress_parse_warnings=suppress_parse_warnings,
         untyped_nullable_maps=untyped_nullable_maps,
+        yielding_names=yielding_names,
         reference_cache=reference_cache,
         python_type_expressions=python_type_expressions,
         openapi_parser_factory=openapi_parser_factory,
@@ -2410,7 +2414,7 @@ def _parse_collapse_root_models_retry(
         raise public_error from None
 
 
-def _parse_untyped_nullable_maps(  # noqa: PLR0913, PLR0917
+def _parse_again(  # noqa: PLR0913, PLR0917
     input_: _GenerationInput,
     input_text: str | None,
     input_file_type: InputFileType,
@@ -2430,8 +2434,14 @@ def _parse_untyped_nullable_maps(  # noqa: PLR0913, PLR0917
     parser_settings_path: Path | None,
     capture: GenerationCaptureSession[object] | None,
     openapi_parser_factory: OpenAPIParserFactory | None,
+    untyped_nullable_maps: bool = True,
+    yielding_names: tuple[tuple[str, tuple[str, str | None]], ...] = (),
 ) -> tuple[Any, _ParserResults, DataModelSet, bool, defaultdict[str, dict[str, Any]] | None]:
-    """Parse once more with the values of nullable maps untyped, as earlier releases did.
+    """Parse once more, with the values of nullable maps untyped as earlier releases did, or typed under given names.
+
+    The values of nullable maps get models that give their names to every other model. Options keyed by class name
+    are looked up while models are created, so a run whose map value models end under other names, which such
+    options name, is parsed again with those models named as they end.
 
     A run keeps these values untyped when typing them changes where models are written, the files written, or the
     models a collapse keeps; the decision covers the whole run, so every input of a directory run is then untyped.
@@ -2459,7 +2469,8 @@ def _parse_untyped_nullable_maps(  # noqa: PLR0913, PLR0917
             formatter_cwd=formatter_cwd,
             preserve_circular_root_models=preserve_circular_root_models,
             suppress_parse_warnings=True,
-            untyped_nullable_maps=True,
+            untyped_nullable_maps=untyped_nullable_maps,
+            yielding_names=yielding_names,
             openapi_parser_factory=openapi_parser_factory,
         )
         results = _parse_with_disposal(
@@ -2584,9 +2595,37 @@ def _parse_generation(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, PLR0917
                 parser_settings_path=parser_settings_path,
                 capture=capture,
             )
+        if yielding_names := parser.yielding_names_to_assign:
+            reparse_caches = parser.remote_text_cache, getattr(parser, "remote_object_cache", None), parser.base_path
+            preserve_circular_root_models = parser.run_context.preserve_circular_root_models
+            if capture is None:
+                parser.dispose()
+            else:
+                _dispose_capture_parser(parser, capture, discard=True)
+            del parser
+            parser, results, data_model_types, defer_formatting, extra_template_data = _parse_again(
+                input_,
+                input_text,
+                input_file_type,
+                source_override,
+                config,
+                dataclass_arguments,
+                schema_versions,
+                diagnostic_source_path,
+                *reparse_caches,
+                skip_root_model=skip_root_model,
+                prefetched_source=prefetched_source,
+                formatter_cwd=None if use_output_cwd else output_context_path,
+                preserve_circular_root_models=preserve_circular_root_models,
+                parser_settings_path=parser_settings_path,
+                capture=capture,
+                openapi_parser_factory=openapi_parser_factory,
+                untyped_nullable_maps=False,
+                yielding_names=yielding_names,
+            )
         discarded_parser = None
         if parser.typed_nullable_maps and parser.typed_map_values_may_move_models:
-            untyped_parse = _parse_untyped_nullable_maps(
+            untyped_parse = _parse_again(
                 input_,
                 input_text,
                 input_file_type,

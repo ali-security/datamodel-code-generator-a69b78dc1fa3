@@ -3877,6 +3877,35 @@ def test_main_openapi_nullable_map_value_model_name_map(
     )
 
 
+@pytest.mark.parametrize("class_name", ["Tags", "Tags1"])
+def test_main_openapi_nullable_map_value_class_keyed_options(output_file: Path, class_name: str) -> None:
+    """Apply options keyed by class name to the model with that final name, not to a map value named so before."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_class_keys.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=f"nullable_map_value_class_keys/{class_name}.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--base-class-map",
+            json.dumps({class_name: "base.Base"}),
+            "--aliases",
+            json.dumps({f"{class_name}.label": "tag_label"}),
+            "--serialization-aliases",
+            json.dumps({f"{class_name}.color": "colour"}),
+            "--default-values",
+            json.dumps({f"{class_name}.color": "red"}),
+            "--extra-template-data",
+            str(OPEN_API_DATA_PATH / "nullable_map_value_class_keys" / f"{class_name}.json"),
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+    )
+
+
 def test_main_openapi_ref_nullable_strict_nullable(output_file: Path) -> None:
     """Test that nullable attribute from $ref schema is propagated."""
     run_main_and_assert(
