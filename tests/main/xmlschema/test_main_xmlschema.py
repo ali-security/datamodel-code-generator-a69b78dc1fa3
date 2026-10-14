@@ -1065,7 +1065,8 @@ def test_xmlschema_compiled_pattern_alias_without_regex_engine(output_file: Path
     """Leave ``regex_engine`` off the models that use a type alias whose XSD pattern is already compiled.
 
     Targets before Pydantic 2.8 keep JSON Schema patterns as strings in type aliases, so their users select the
-    engine. XSD patterns are compiled for every target and validate without a config.
+    engine. Combined XSD patterns are compiled for every target, ``2`` included, so they need Pydantic 2.8, from which
+    they validate without a config.
     """
     run_main_and_assert(
         input_path=XML_SCHEMA_DATA_PATH / "pattern_alternatives_simple.xsd",
