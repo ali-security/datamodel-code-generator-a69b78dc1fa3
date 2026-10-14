@@ -1479,10 +1479,11 @@ class ModelResolver:  # noqa: PLR0904
 
         For PrimaryFirst strategy, when a primary definition in the main file
         has the same name as an external reference, rename the external reference
-        so the primary definition can use the clean name.
+        so the primary definition can use the clean name. A yielding reference is left to give its name way
+        when the primary definition takes it.
         """
         for ref_path, ref in self.references.items():
-            if ref.name == name and ref_path != current_path:
+            if ref.name == name and ref_path != current_path and not self.is_yielding(ref):
                 # Check if this is an external reference (different file)
                 ref_file = ref_path.split("#")[0]
                 current_file = current_path.split("#", maxsplit=1)[0]

@@ -3725,6 +3725,27 @@ def test_main_openapi_nullable_map_value_model_name_map(
     )
 
 
+def test_main_openapi_nullable_map_value_primary_first(output_file: Path) -> None:
+    """Keep the 0.83.0 name of a primary model that an external map value took first under primary-first naming."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_primary_first" / "main.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="nullable_map_value_primary_first.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--naming-strategy",
+            "primary-first",
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
 def test_main_openapi_ref_nullable_strict_nullable(output_file: Path) -> None:
     """Test that nullable attribute from $ref schema is propagated."""
     run_main_and_assert(
