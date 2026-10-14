@@ -3656,6 +3656,64 @@ def test_main_openapi_nullable_map_value_names(
     )
 
 
+def test_main_openapi_nullable_map_value_layout_collapse_root_models(output_file: Path) -> None:
+    """Write one file, as before typed values, when typing the values of collapsed dotted maps needs a module."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_layout.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="nullable_map_value_layout/collapse_root_models.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--collapse-root-models",
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+def test_main_openapi_nullable_map_value_layout_modules(output_dir: Path) -> None:
+    """Write the modules written before typed values when typing the values of dotted maps needs another one."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_layout.yaml",
+        output_path=output_dir,
+        input_file_type="openapi",
+        expected_directory=EXPECTED_OPENAPI_PATH / "nullable_map_value_layout" / "modules",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
+def test_main_openapi_nullable_map_value_reuse_model(output_file: Path) -> None:
+    """Reuse the model a map value duplicates, so identical nullable maps are reused as before typed values."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_reuse.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="nullable_map_value_reuse.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--reuse-model",
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
 def test_main_openapi_ref_nullable_strict_nullable(output_file: Path) -> None:
     """Test that nullable attribute from $ref schema is propagated."""
     run_main_and_assert(

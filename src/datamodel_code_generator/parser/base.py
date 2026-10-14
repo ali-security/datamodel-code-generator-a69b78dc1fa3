@@ -568,6 +568,7 @@ class ParserRunContext:
     formatter_cwd: Path | None = None
     preserve_circular_root_models: bool = False
     suppress_parse_warnings: bool = False
+    untyped_nullable_maps: bool = False
 
 
 _DEFAULT_PARSER_RUN_CONTEXT = ParserRunContext()
@@ -2587,7 +2588,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         """Return the immutable settings for the current facade-managed run."""
         return self._run_context or _DEFAULT_PARSER_RUN_CONTEXT
 
-    def configure_run_context(
+    def configure_run_context(  # noqa: PLR0913
         self,
         *,
         diagnostic_source_path: Path | None = None,
@@ -2595,24 +2596,18 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         formatter_cwd: Path | None = None,
         preserve_circular_root_models: bool = False,
         suppress_parse_warnings: bool = False,
+        untyped_nullable_maps: bool = False,
     ) -> None:
         """Configure parser run state without exposing implementation attributes."""
-        if (
-            diagnostic_source_path is None
-            and prefetched_source is None
-            and formatter_cwd is None
-            and not preserve_circular_root_models
-            and not suppress_parse_warnings
-        ):
-            self._run_context = None
-            return
-        self._run_context = ParserRunContext(
+        context = ParserRunContext(
             diagnostic_source_path=diagnostic_source_path,
             prefetched_source=prefetched_source,
             formatter_cwd=formatter_cwd,
             preserve_circular_root_models=preserve_circular_root_models,
             suppress_parse_warnings=suppress_parse_warnings,
+            untyped_nullable_maps=untyped_nullable_maps,
         )
+        self._run_context = None if context == _DEFAULT_PARSER_RUN_CONTEXT else context
 
     def _configure_legacy_run_context_attribute(self, attribute: str, value: object) -> None:
         """Keep historical private state writes as a parser-local compatibility facade."""
@@ -2633,6 +2628,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             preserve_circular_root_models=preserve_circular_root_models,
             suppress_parse_warnings=context.suppress_parse_warnings,
             prefetched_source=context.prefetched_source,
+            untyped_nullable_maps=context.untyped_nullable_maps,
         )
 
     @property
@@ -2817,6 +2813,8 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         self._decimal_default_warning_examples: list[str] | None = None
         self._data_model_field_common_kwargs_cache: dict[str, Any] = {"use_missing_sentinel": self.use_missing_sentinel}
         self.reuse_model: bool = config.reuse_model
+        self._typed_map_value_reference_ids: set[int] = set()
+        self.typed_nullable_maps = False
         self.reuse_scope: ReuseScope | None = config.reuse_scope
         self.shared_module_name: str = config.shared_module_name
         self.encoding: str = self._source_context.encoding
@@ -4051,9 +4049,18 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             for model in self._reuse_optimization_context.eligible_models(models.copy())
             if not (self.collapse_root_models and self._is_root_model(model))
         )
-        for cached_model, model in _iter_matching_duplicates(reuse_candidates, {}, lambda item: item.get_dedup_key()):
+        typed_map_values = self._typed_map_value_reference_ids
+        canonical_models: dict[int, DataModel] = {}
+        for first_model, duplicate_model in _iter_matching_duplicates(
+            reuse_candidates, {}, lambda item: item.get_dedup_key()
+        ):
+            cached_model = canonical_models.get(id(first_model), first_model)
+            model = duplicate_model
+            if id(cached_model.reference) in typed_map_values and id(model.reference) not in typed_map_values:
+                cached_model, model = model, cached_model
+                canonical_models[id(first_model)] = cached_model
             cached_model_reference = cached_model.reference
-            if isinstance(model, Enum) or self.collapse_reuse_models:
+            if isinstance(model, Enum) or self.collapse_reuse_models or id(model.reference) in typed_map_values:
                 self.generation_store.redirect_model_reference_users(model, models, cached_model_reference)
                 duplicates.append(model)
             else:
@@ -7568,7 +7575,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 self.parse_raw()
         finally:
             self._close_http_fetch_session()
-        self.model_resolver.settle_yielding_names()
+        self._typed_map_value_reference_ids = self.model_resolver.settle_yielding_names()
         if suppress_parse_warnings:
             self._run_with_suppressed_warnings(self._report_parse_diagnostics)
         else:

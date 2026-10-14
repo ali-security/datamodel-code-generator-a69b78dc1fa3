@@ -1029,9 +1029,11 @@ class ModelResolver:  # noqa: PLR0904
         finally:
             self._new_references_yield = previous
 
-    def settle_yielding_names(self) -> None:
-        """Keep the current names of yielding references from now on."""
+    def settle_yielding_names(self) -> set[int]:
+        """Keep the current names of yielding references from now on and return the ids of those references."""
+        yielding_reference_ids = {id(entry.reference) for entry in self._yielding_names.values()}
         self._yielding_names.clear()
+        return yielding_reference_ids
 
     def _evict_yielding_reference(self, name: str) -> None:
         """Move a yielding reference off ``name`` so that a reference that does not yield can take it."""

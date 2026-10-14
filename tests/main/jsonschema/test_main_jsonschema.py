@@ -3653,6 +3653,26 @@ def test_main_jsonschema_allof_scalar_roots(output_file: Path) -> None:
     )
 
 
+def test_main_jsonschema_nullable_map_value_reuse_model(output_file: Path) -> None:
+    """Keep a definition as its own model when an earlier nullable map value duplicates it."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "nullable_map_value_reuse.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="nullable_map_value_reuse.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--reuse-model",
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
 def test_main_root_model_with_additional_properties(output_file: Path) -> None:
     """Test root model with additional properties."""
     run_main_and_assert(
