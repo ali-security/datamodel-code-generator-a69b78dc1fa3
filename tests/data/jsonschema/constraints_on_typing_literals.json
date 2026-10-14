@@ -9,7 +9,8 @@
     "extension_strings",
     "string_unions",
     "mixed_values",
-    "strings_with_none"
+    "strings_with_none",
+    "nested_strings"
   ],
   "properties": {
     "strings_on_integer": {
@@ -45,6 +46,11 @@
     "strings_with_none": {
       "type": "integer",
       "x-python-type": "typing.Literal[\"a\", \"bb\", None]",
+      "minLength": 2
+    },
+    "nested_strings": {
+      "type": "integer",
+      "x-python-type": "typing.Literal[typing.Literal[\"a\", \"bb\"], \"ccc\"]",
       "minLength": 2
     }
   }

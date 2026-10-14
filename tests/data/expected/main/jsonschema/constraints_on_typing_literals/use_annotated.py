@@ -16,4 +16,5 @@ class ConstraintsOnTypingLiterals(BaseModel):
     extension_strings: Annotated[Literal_1['a', 'bb'], Field(max_length=1)]
     string_unions: Annotated[Literal['a', 'bb'] | Literal['ccc'], Field(pattern='^b')]
     mixed_values: Literal['a', 1]
-    strings_with_none: Literal['a', 'bb', None]
+    strings_with_none: Annotated[Literal['a', 'bb', None], Field(min_length=2)]
+    nested_strings: Annotated[Literal[Literal['a', 'bb'], 'ccc'], Field(min_length=2)]

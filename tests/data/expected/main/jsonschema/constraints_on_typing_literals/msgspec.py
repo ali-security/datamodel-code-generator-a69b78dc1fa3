@@ -17,3 +17,4 @@ class ConstraintsOnTypingLiterals(Struct):
     string_unions: Literal['a', 'bb'] | Literal['ccc']
     mixed_values: Literal['a', 1]
     strings_with_none: Literal['a', 'bb', None]
+    nested_strings: Literal[Literal['a', 'bb'], 'ccc']

@@ -5437,6 +5437,7 @@ _TYPING_CONSTRAINT_OUTPUTS = (
             ["--output-model-type", "msgspec.Struct", "--type-overrides", _TYPING_ALIAS_TYPE_OVERRIDES],
         ),
         *(("constraints_on_typing_literals", *output) for output in _TYPING_CONSTRAINT_OUTPUTS),
+        *(("constraints_on_typing_literal_values", *output) for output in _TYPING_CONSTRAINT_OUTPUTS[:3]),
     ],
 )
 def test_main_constraints_on_typing_aliases(
@@ -5444,7 +5445,8 @@ def test_main_constraints_on_typing_aliases(
 ) -> None:
     """Test a typing alias, an abstract collection and Annotated take the keywords of their type, at runtime too.
 
-    A ``Literal`` takes the keywords of ``str`` or ``int`` when all its values are of that type, and none otherwise.
+    A ``Literal`` takes the keywords every value other than ``None`` takes, and a ``bool`` value takes none; msgspec
+    does not run the float, bytes and bool values, which its ``Literal`` does not support.
     """
     run_main_and_assert(
         input_path=JSON_SCHEMA_DATA_PATH / f"{name}.json",

@@ -6,7 +6,8 @@
     "extension_strings": "a",
     "string_unions": "bb",
     "mixed_values": 1,
-    "strings_with_none": "bb"
+    "strings_with_none": "bb",
+    "nested_strings": "bb"
   },
   "invalid": {
     "strings_on_integer": "a",
@@ -15,6 +16,7 @@
     "extension_strings": "bb",
     "string_unions": "a",
     "mixed_values": "a",
-    "strings_with_none": "a"
+    "strings_with_none": "a",
+    "nested_strings": "a"
   }
 }

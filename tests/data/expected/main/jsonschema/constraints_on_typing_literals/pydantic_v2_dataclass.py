@@ -13,9 +13,10 @@ from typing_extensions import Literal as Literal_1
 @dataclass
 class ConstraintsOnTypingLiterals:
     mixed_values: Literal['a', 1]
-    strings_with_none: Literal['a', 'bb', None]
     strings_on_integer: Literal['a', 'bb'] = Field(..., min_length=2)
     integers_on_string: Literal[1, 2, 3] = Field(..., multiple_of=2)
     integer_bound_on_string: Literal[1, 2, 3] = Field(..., ge=2)
     extension_strings: Literal_1['a', 'bb'] = Field(..., max_length=1)
     string_unions: Literal['a', 'bb'] | Literal['ccc'] = Field(..., pattern='^b')
+    strings_with_none: Literal['a', 'bb', None] = Field(..., min_length=2)
+    nested_strings: Literal[Literal['a', 'bb'], 'ccc'] = Field(..., min_length=2)
