@@ -3746,6 +3746,25 @@ def test_main_openapi_nullable_map_value_primary_first(output_file: Path) -> Non
     )
 
 
+def test_main_openapi_nullable_map_value_all_of_duplicate(output_file: Path) -> None:
+    """Free the name of a map value model dropped as an allOf duplicate for a later model."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "nullable_map_value_all_of_duplicate.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="nullable_map_value_all_of_duplicate.py",
+        extra_args=[
+            "--output-model-type",
+            DataModelType.PydanticV2BaseModel.value,
+            "--disable-timestamp",
+            "--formatters",
+            "builtin",
+        ],
+        force_exec_validation=True,
+    )
+
+
 def test_main_openapi_ref_nullable_strict_nullable(output_file: Path) -> None:
     """Test that nullable attribute from $ref schema is propagated."""
     run_main_and_assert(
