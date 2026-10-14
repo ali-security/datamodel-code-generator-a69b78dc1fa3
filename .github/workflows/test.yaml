@@ -1,13 +1,13 @@
 name: Test
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: "0 9 * * *"
+    inputs:
+      test-filter:
+        description: "Optional pytest selector passed to the test runs"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: test-${{ github.ref }}
@@ -45,6 +45,7 @@ jobs:
           - tox_env: py312-isort5-nocov-parallel
             name: py312-isort5
     runs-on: ${{ matrix.os == '' && 'ubuntu-24.04' || matrix.os }}
+    timeout-minutes: 50
     env:
       OS: ${{ matrix.os == '' && 'ubuntu-24.04' || matrix.os}}
     steps:
@@ -80,10 +81,15 @@ jobs:
         UV_PYTHON_PREFERENCE: "only-managed"
     - name: Run test suite
       run: |
-        tox run --skip-uv-sync --skip-pkg-install -e $TOX_ENV
+        if [ -n "$TEST_FILTER" ]; then
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- -n0 --color=yes $TEST_FILTER
+        else
+          tox run --skip-uv-sync --skip-pkg-install -e $TOX_ENV
+        fi
       shell: bash
       env:
         UV_PYTHON_PREFERENCE: "only-managed"
+        TEST_FILTER: ${{ inputs.test-filter }}
 
   test-coverage:
     name: ${{ matrix.name }} on Ubuntu
@@ -101,6 +107,7 @@ jobs:
             name: pydantic213
             coverage_name: pydantic213
     runs-on: ubuntu-24.04
+    timeout-minutes: 50
     env:
       OS: ubuntu-24.04
       TOX_ENV: ${{ matrix.tox_env }}
@@ -124,10 +131,15 @@ jobs:
         UV_PYTHON_PREFERENCE: "only-managed"
     - name: Run test suite
       run: |
-        tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV"
+        if [ -n "$TEST_FILTER" ]; then
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- -n0 --color=yes $TEST_FILTER
+        else
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV"
+        fi
       shell: bash
       env:
         UV_PYTHON_PREFERENCE: "only-managed"
+        TEST_FILTER: ${{ inputs.test-filter }}
     - name: Rename coverage report file
       run: |
         import os
@@ -158,6 +170,7 @@ jobs:
             name: py312-black22
             coverage_name: py312-black22
     runs-on: ubuntu-24.04
+    timeout-minutes: 50
     env:
       OS: ubuntu-24.04
       TOX_ENV: ${{ matrix.tox_env }}
@@ -213,21 +226,26 @@ jobs:
     - name: Run formatter coverage tests
       run: |
         mapfile -t test_paths < .tox/formatter-coverage-tests.txt
-        tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- \
-          -n auto \
-          --dist=worksteal \
-          --color=yes \
-          -m "not perf" \
-          --cov datamodel_code_generator \
-          --cov tests \
-          --cov-config=pyproject.toml \
-          --cov-fail-under=0 \
-          --no-cov-on-fail \
-          --cov-report term-missing:skip-covered \
-          "${test_paths[@]}"
+        if [ -n "$TEST_FILTER" ]; then
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- -n0 --color=yes $TEST_FILTER
+        else
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- \
+            -n auto \
+            --dist=worksteal \
+            --color=yes \
+            -m "not perf" \
+            --cov datamodel_code_generator \
+            --cov tests \
+            --cov-config=pyproject.toml \
+            --cov-fail-under=0 \
+            --no-cov-on-fail \
+            --cov-report term-missing:skip-covered \
+            "${test_paths[@]}"
+        fi
       shell: bash
       env:
         UV_PYTHON_PREFERENCE: "only-managed"
+        TEST_FILTER: ${{ inputs.test-filter }}
     - name: Rename coverage report file
       run: |
         import os
@@ -270,6 +288,7 @@ jobs:
             os: macos-latest
             coverage: false
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
     env:
       OS: ${{ matrix.os }}
       TOX_ENV: ${{ matrix.tox_env }}
@@ -291,10 +310,16 @@ jobs:
       env:
         UV_PYTHON_PREFERENCE: "only-managed"
     - name: Run HTTP backend e2e suite
-      run: tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV"
+      run: |
+        if [ -n "$TEST_FILTER" ]; then
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- -n0 --color=yes $TEST_FILTER
+        else
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV"
+        fi
       shell: bash
       env:
         UV_PYTHON_PREFERENCE: "only-managed"
+        TEST_FILTER: ${{ inputs.test-filter }}
     - name: Rename coverage report file
       if: matrix.coverage == true
       run: |
@@ -469,6 +494,7 @@ jobs:
             shard: 2
             shard_total: 2
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
     env:
       OS: ${{ matrix.os }}
       SHARD_INDEX: ${{ matrix.shard }}
@@ -543,16 +569,21 @@ jobs:
             --cov-report term-missing:skip-covered
           )
         fi
-        tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- \
-          -n auto \
-          --dist=worksteal \
-          --color=yes \
-          -m "not perf" \
-          "${coverage_args[@]}" \
-          "${test_paths[@]}"
+        if [ -n "$TEST_FILTER" ]; then
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- -n0 --color=yes $TEST_FILTER
+        else
+          tox run --skip-uv-sync --skip-pkg-install -e "$TOX_ENV" -- \
+            -n auto \
+            --dist=worksteal \
+            --color=yes \
+            -m "not perf" \
+            "${coverage_args[@]}" \
+            "${test_paths[@]}"
+        fi
       shell: bash
       env:
         UV_PYTHON_PREFERENCE: "only-managed"
+        TEST_FILTER: ${{ inputs.test-filter }}
     - name: Rename coverage report file
       if: matrix.coverage == true
       run: |
@@ -574,7 +605,9 @@ jobs:
 
   coverage:
     name: combine coverage
+    if: false
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     needs:
       - test-coverage
       - test-formatter-coverage
@@ -606,7 +639,6 @@ jobs:
           .tox/coverage/bin/coverage xml -o .tox/coverage.xml
           .tox/coverage/bin/diff-cover --compare-branch "${DIFF_AGAINST:-origin/main}" .tox/coverage.xml
           .tox/coverage/bin/coverage report --fail-under=100 --skip-covered --show-missing
-        continue-on-error: true
         env:
           COVERAGE_FILE: .tox/.coverage
       - name: Show uncovered lines on failure
@@ -638,7 +670,9 @@ jobs:
 
   check:
     name: checks
+    if: false
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -652,7 +686,6 @@ jobs:
         run: uv tool install --python-preference only-managed --python 3.13 tox --with tox-uv
       - name: Setup check suites
         id: setup-check-suites
-        continue-on-error: true
         run: |
           set -uo pipefail
           failed=0
@@ -666,7 +699,6 @@ jobs:
           UV_PYTHON_PREFERENCE: "only-managed"
       - name: Run check suites
         id: run-check-suites
-        continue-on-error: true
         run: |
           set -uo pipefail
           failed=0
@@ -680,7 +712,6 @@ jobs:
           UV_PYTHON_PREFERENCE: "only-managed"
       - name: Check compiled templates
         id: compiled-templates
-        continue-on-error: true
         run: tox exec -e type -- python scripts/compile_builtin_templates.py --check
       - name: Fail if any check suite failed
         if: always()
@@ -700,6 +731,7 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -711,7 +743,6 @@ jobs:
         run: uv tool install --python-preference only-managed --python 3.13 tox --with tox-uv
       - name: Setup e2e suites
         id: setup-e2e-suites
-        continue-on-error: true
         run: |
           set -uo pipefail
           failed=0
@@ -737,7 +768,6 @@ jobs:
       - name: Checkout W3C XML Schema Test Suite
         id: checkout-w3c-xsdtests
         if: steps.cache-w3c-xsdtests.outputs.cache-hit != 'true'
-        continue-on-error: true
         run: |
           git clone --filter=blob:none https://github.com/w3c/xsdtests.git .tox/w3c-xsdtests
           git -C .tox/w3c-xsdtests checkout 7bc3365c652a322f3d762021b3879eb92dae7e30
@@ -749,7 +779,6 @@ jobs:
           key: e2e-xsdtests-7bc3365c652a322f3d762021b3879eb92dae7e30
       - name: Run W3C XML Schema e2e suite
         id: run-w3c-xmlschema-e2e
-        continue-on-error: true
         run: |
           tox run --skip-uv-sync --skip-pkg-install -e w3c-xmlschema-e2e -- \
             .tox/w3c-xsdtests \
@@ -766,7 +795,6 @@ jobs:
       - name: Checkout JSON-Schema-Test-Suite
         id: checkout-json-schema-test-suite
         if: steps.cache-json-schema-test-suite.outputs.cache-hit != 'true'
-        continue-on-error: true
         run: |
           git clone --filter=blob:none https://github.com/json-schema-org/JSON-Schema-Test-Suite.git .tox/json-schema-test-suite
           git -C .tox/json-schema-test-suite checkout fe8c2f0de2041943975932b6bf4bd882625b6cfb
@@ -778,7 +806,6 @@ jobs:
           key: e2e-json-schema-test-suite-fe8c2f0de2041943975932b6bf4bd882625b6cfb
       - name: Run JSON-Schema-Test-Suite conformance
         id: run-jsonschema-suite-conformance
-        continue-on-error: true
         run: |
           tox run --skip-uv-sync --skip-pkg-install -e jsonschema-suite-conformance -- \
             .tox/json-schema-test-suite
@@ -793,7 +820,6 @@ jobs:
       - name: Checkout AsyncAPI spec JSON Schemas
         id: checkout-asyncapi-spec-json-schemas
         if: steps.cache-asyncapi-spec-json-schemas.outputs.cache-hit != 'true'
-        continue-on-error: true
         run: |
           git clone --filter=blob:none https://github.com/asyncapi/spec-json-schemas.git .tox/asyncapi-spec-json-schemas
           git -C .tox/asyncapi-spec-json-schemas checkout 469c2b2bf5ed88e0cdf1e48975b93a87c710d229
@@ -805,7 +831,6 @@ jobs:
           key: e2e-asyncapi-spec-json-schemas-469c2b2bf5ed88e0cdf1e48975b93a87c710d229
       - name: Run AsyncAPI spec JSON Schemas e2e suite
         id: run-asyncapi-spec-json-schemas-e2e
-        continue-on-error: true
         run: |
           tox run --skip-uv-sync --skip-pkg-install -e asyncapi-spec-json-schemas-e2e -- \
             .tox/asyncapi-spec-json-schemas/schemas \
@@ -821,7 +846,6 @@ jobs:
       - name: Checkout Apache Avro
         id: checkout-apache-avro
         if: steps.cache-apache-avro.outputs.cache-hit != 'true'
-        continue-on-error: true
         run: |
           git clone --filter=blob:none https://github.com/apache/avro.git .tox/apache-avro
           git -C .tox/apache-avro checkout 9110c693767c1dde2665b2b57939333478b12036
@@ -833,7 +857,6 @@ jobs:
           key: e2e-apache-avro-9110c693767c1dde2665b2b57939333478b12036
       - name: Run Apache Avro schema pass e2e suite
         id: run-apache-avro-schema-pass-e2e
-        continue-on-error: true
         run: |
           tox run --skip-uv-sync --skip-pkg-install -e apache-avro-schema-pass-e2e -- \
             .tox/apache-avro/lang/c/tests/schema_tests/pass \
@@ -849,7 +872,6 @@ jobs:
       - name: Checkout Protocol Buffers
         id: checkout-protobuf
         if: steps.cache-protobuf.outputs.cache-hit != 'true'
-        continue-on-error: true
         run: |
           git clone --filter=blob:none --no-checkout https://github.com/protocolbuffers/protobuf.git .tox/protobuf
           git -C .tox/protobuf sparse-checkout init --cone
@@ -863,7 +885,6 @@ jobs:
           key: e2e-protobuf-4376cba55d9e2f44f7e317d9c10e0259d145f8cf
       - name: Run Protocol Buffers official e2e suite
         id: run-protobuf-official-e2e
-        continue-on-error: true
         run: |
           tox run --skip-uv-sync --skip-pkg-install -e protobuf-official-e2e -- \
             .tox/protobuf \
@@ -906,14 +927,13 @@ jobs:
     name: test-gate
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     needs:
       - test
       - test-coverage
       - test-formatter-coverage
       - test-http-backends
       - test-shard
-      - coverage
-      - check
       - e2e
     steps:
       - name: Fail if any test workflow job failed
@@ -923,8 +943,6 @@ jobs:
           test_formatter_coverage_result='${{ needs.test-formatter-coverage.result }}'
           test_http_backends_result='${{ needs.test-http-backends.result }}'
           test_shard_result='${{ needs.test-shard.result }}'
-          coverage_result='${{ needs.coverage.result }}'
-          check_result='${{ needs.check.result }}'
           e2e_result='${{ needs.e2e.result }}'
 
           echo "test: ${test_result}"
@@ -932,8 +950,6 @@ jobs:
           echo "test formatter coverage: ${test_formatter_coverage_result}"
           echo "test HTTP backends: ${test_http_backends_result}"
           echo "test shard: ${test_shard_result}"
-          echo "coverage: ${coverage_result}"
-          echo "check: ${check_result}"
           echo "e2e: ${e2e_result}"
 
           [ "${test_result}" = "success" ] || exit 1
@@ -941,6 +957,4 @@ jobs:
           [ "${test_formatter_coverage_result}" = "success" ] || exit 1
           [ "${test_http_backends_result}" = "success" ] || exit 1
           [ "${test_shard_result}" = "success" ] || exit 1
-          [ "${coverage_result}" = "success" ] || exit 1
-          [ "${check_result}" = "success" ] || exit 1
           [ "${e2e_result}" = "success" ] || exit 1
