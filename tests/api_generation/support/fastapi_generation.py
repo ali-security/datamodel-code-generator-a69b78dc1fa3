@@ -97,7 +97,7 @@ def _render(
                     "package_snapshots", case.get("backends", ["pydantic_v2.BaseModel"])
                 ):
                     modules[parts] = text
-            case ".md", parts if backend in case.get("readme", ()):
+            case ".md" | ".json", parts if backend in case.get("readme", ()):
                 documents[parts] = text
             case _:
                 pass
@@ -108,12 +108,12 @@ def _render(
 def fastapi_render(
     case_name: str, root: Path, *, builtin_sources: bool = False
 ) -> tuple[str, dict[str, Modules], Modules]:
-    """Render one fixture for each of its backends, returning a report, every backend's Python modules, and READMEs.
+    """Render one fixture for each of its backends, returning a report, every backend's Python modules, and documents.
 
-    The report lists every file a render returns. The READMEs, under their backend's directory, are those of the
-    backends the case's `readme` names. The report is headed by the case's `expected` name, or its own. With
-    builtin_sources, a custom template directory holds a copy of the builtin server templates, so that every role
-    renders from its Jinja source instead of its compiled renderer.
+    The report lists every file a render returns. The documents, the README and the served OpenAPI document under
+    their backend's directory, are those of the backends the case's `readme` names. The report is headed by the
+    case's `expected` name, or its own. With builtin_sources, a custom template directory holds a copy of the builtin
+    server templates, so that every role renders from its Jinja source instead of its compiled renderer.
     """
     case = json.loads((SOURCE / "cases.json").read_text(encoding="utf-8"))[case_name]
     lines = [f"# {case.get('expected', case_name)}"]

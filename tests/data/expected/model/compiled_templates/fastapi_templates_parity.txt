@@ -189,12 +189,13 @@ __all__ = [
 === facade.jinja2 / empty
 """Router groups of this package."""
 
-=== openapi.jinja2 / populated
-"""The source OpenAPI document of the selected operations, which the application serves; regenerate it."""
+=== openapi.jinja2 / module
+"""Serve the source OpenAPI document of the selected operations, which `openapi.json` beside this module holds."""
 
 from __future__ import annotations
 
 import json
+from importlib.resources import files
 from typing import TYPE_CHECKING, Any
 
 from .._runtime.server.openapi import serve_openapi
@@ -204,16 +205,11 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
-_TEXT = (
-    '{\n'
-    '  "title": "日本 {braces} \\\\"\n'
-    '}'
-)
-
 
 def document() -> dict[str, Any]:
-    """Return a new copy of the source document."""
-    loaded: dict[str, Any] = json.loads(_TEXT)
+    """Return a new copy of the source document, read from `openapi.json` beside this module."""
+    source = files(__name__.rpartition(".")[0]) / "openapi.json"
+    loaded: dict[str, Any] = json.loads(source.read_text(encoding="utf-8"))
     return loaded
 
 
@@ -306,7 +302,8 @@ The package never contacts a token endpoint.
 
 ## Served OpenAPI document
 
-`create_app` serves the part of the source document the selected operations use, which generation writes into `_generated/openapi.py`; the application reads it on the first request for it.
+`create_app` serves the part of the source document the selected operations use, which generation writes into `_generated/openapi.json`; the application reads it on the first request for it.
+`_generated/openapi.json` is package data, so a distribution that holds the package must include it: Hatchling and uv_build include it by default, while setuptools needs it in `package-data`.
 `create_app(..., source_openapi=False)` serves FastAPI's own document instead, built from the routes and the models they declare, in which an optional parameter or request body is `anyOf` of its type and `null`.
 An application of your own that includes `build_router(...)` serves FastAPI's document unless it calls `serve_source_openapi(app)`, imported from `server`.
 
@@ -388,7 +385,8 @@ app.include_router(build_router())
 
 ## Served OpenAPI document
 
-`create_app` serves the part of the source document the selected operations use, which generation writes into `_generated/openapi.py`; the application reads it on the first request for it.
+`create_app` serves the part of the source document the selected operations use, which generation writes into `_generated/openapi.json`; the application reads it on the first request for it.
+`_generated/openapi.json` is package data, so a distribution that holds the package must include it: Hatchling and uv_build include it by default, while setuptools needs it in `package-data`.
 `create_app(..., source_openapi=False)` serves FastAPI's own document instead, built from the routes and the models they declare, in which an optional parameter or request body is `anyOf` of its type and `null`.
 An application of your own that includes `build_router(...)` serves FastAPI's document unless it calls `serve_source_openapi(app)`, imported from `server`.
 

@@ -37,6 +37,7 @@ PACKAGES: Final[dict[str, dict[str, Any]]] = {
     "hooks": {"input": "served-hooks.yaml", "files": ["served-event.yaml", "served-library.yaml"]},
     "streams": {"input": "served-items.yaml", "files": ["served-items-library.yaml", "events/stamp.yaml"]},
     "resources": {"input": "served-resources.yaml"},
+    "text": {"input": "served-text.yaml"},
     "local": {
         "input": "served-local.yaml",
         "files": ["served-local/parts/library.yaml", "served-local/shared/pet.yaml"],
@@ -226,6 +227,12 @@ def document_resources(packages: dict[str, Any]) -> list[str]:
         json.dumps(_connected(resources.create_app, prefix="/api").openapi(), indent=2),
         f"unset {sorted(unset)} {sorted(unset['info'])}",
     ]
+
+
+@_scenario("text")
+def document_text(packages: dict[str, Any]) -> list[str]:
+    """Serve quotes, backslashes, and non-ASCII characters of the source's text as it declares them."""
+    return [json.dumps(_connected(packages["text"].create_app).openapi(), indent=2, ensure_ascii=False)]
 
 
 @_scenario("bodies")
