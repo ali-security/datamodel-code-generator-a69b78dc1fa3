@@ -131,11 +131,13 @@ Pydantic 2.11 cannot build a `time` field that has a number bound; use Pydantic 
 A known type is a Python builtin, a standard-library type, or a type the generator itself imports; its row above
 decides. A `typing` alias or an abstract collection is read as the class it stands for (`typing.List`,
 `collections.abc.Sequence` and `collections.abc.Collection` as `list`), and `Annotated[T, ...]` or `Final[T]` as `T`;
-a `typing_extensions` name that `typing` also exports is read as the `typing` name. Any other `typing` or
-`collections.abc` name, such as `typing.SupportsInt` or `collections.abc.Callable`, is a known type that takes no
-number keyword. A union keeps a keyword only when every member other than `None` takes it, so `int | None` keeps the
-keywords in Pydantic models and `int | str` does not; `msgspec` writes no type-dependent keyword (number, string or
-array) on an `x-python-type` union. Custom templates receive the same values as the built-in ones.
+a `typing_extensions` name that `typing` also exports is read as the `typing` name. A `Literal` is read as `str` when
+all its values are strings and as `int` when all are integers, and takes no keyword otherwise; `msgspec` accepts no
+constraint on a `Literal`. Any other `typing` or `collections.abc` name, such as `typing.SupportsInt` or
+`collections.abc.Callable`, is a known type that takes no number keyword. A union keeps a keyword only when every
+member other than `None` takes it, so `int | None` keeps the keywords in Pydantic models and `int | str` does not;
+`msgspec` writes no type-dependent keyword (number, string or array) on an `x-python-type` union. Custom templates
+receive the same values as the built-in ones.
 
 A named schema whose `allOf` merges into one scalar type, such as
 `{"allOf": [{"type": "string", "format": "duration"}, {"minimum": 0}]}`, is a root model of that type and follows the
@@ -172,8 +174,9 @@ without `type` is written as `Any`, which takes none of them, so `{"minLength": 
 "pattern": "^1"}` leaves the field unconstrained. For compatibility, a schema type `string` also writes `minItems` and
 `maxItems`, and a schema type `array` also writes `minLength` and `maxLength`, as their length bounds.
 
-A `typing` alias, an abstract collection, `Annotated[T, ...]` and `Final[T]` are read as for number keywords, so
-`typing.List[int]`, `collections.abc.Sequence[int]` and `Annotated[list[int], ...]` take the keywords of `list`.
+A `typing` alias, an abstract collection, `Annotated[T, ...]`, `Final[T]` and `Literal` are read as for number
+keywords, so `typing.List[int]`, `collections.abc.Sequence[int]` and `Annotated[list[int], ...]` take the keywords of
+`list`, and `Literal["a", "bb"]` takes those of `str` in Pydantic models.
 
 | Python type | Pydantic | msgspec |
 |-------------|----------|---------|
