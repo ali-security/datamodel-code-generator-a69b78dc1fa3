@@ -965,29 +965,38 @@ bytes, and `--check` reports a module that differs.
 
 ### Requirements
 
-- Server generation needs Python 3.11 or later, both to run `datamodel-codegen` and as the target Python version.
-  Set the target with `--target-python-version` or a preset that sets it, as the quick start does; the default
-  target, 3.10, and running on Python 3.10 are both refused with `Error:` and exit code 2.
+Server generation needs some model settings. A setting you leave unset, on the command line, in
+`[tool.datamodel-codegen]` or a job's table, in the arguments of `generate()`, and in the preset, takes the value
+the server needs; a value you set yourself that the server cannot use stops the run with `Error:` and exit code 2,
+or an `Error` from `generate()`. The models are those of a model-only run given the same settings. After a command
+line run that set any, stderr shows how to set them yourself, before the `uv add` notice: the command as you ran it
+with the options appended, or, for settings from `pyproject.toml`, the lines to add to the table that held them;
+`--output-format json` names them in `target.implied`, keyed as `pyproject.toml` keys them. `generate()` prints
+nothing. Presets stay as they are, without these settings.
+
+- Python 3.11 or later, both to run `datamodel-codegen` and as the target Python version: an unset
+  `--target-python-version` is `3.11`. An older one, set yourself or by a preset for Python 3.10, is refused; the
+  message names the preset, so that you pick one for Python 3.11 or later. Running on Python 3.10 is refused too.
+- `--openapi-scopes` includes `api`, so that the models cover the parameters, bodies, and responses of the
+  operations: unset, it is `schemas api`. Scopes you give without `api` stop the run with
+  `Error: --generate-server requires --openapi-scopes to include api`.
+- `--use-missing-sentinel` needs `--target-pydantic-version 2.14`, with which the models import `MISSING` from
+  `pydantic` (`from pydantic import MISSING`): with the sentinel, an unset target is `2.14`. Model generation alone
+  imports it from `pydantic.experimental.missing_sentinel`, which pydantic 2.14 deprecates, when the target is unset
+  or `2.12`, and refuses the option for `2` and `2.11`. With a target of `2`, `2.11`, or `2.12` that you set, server
+  generation stops with `Error: The fastapi target needs --target-pydantic-version 2.14 for --use-missing-sentinel,
+  so that the models import MISSING from pydantic`.
+- `pydantic_v2.dataclass` models need `--use-missing-sentinel`, and with it `--target-pydantic-version 2.14`, since a
+  dataclass field cannot tell an unset member from one set to `None`: unset, the sentinel is on and the target is
+  `2.14`. With `use-missing-sentinel = false` in `pyproject.toml`, generation stops with
+  `Error: The fastapi target needs --use-missing-sentinel with --target-pydantic-version 2.14 for
+  'pydantic_v2.dataclass' models, whose fields cannot tell an unset member from None`. With both, an optional field
+  without a default holds `MISSING`: a member a request leaves out reaches the method as `MISSING`, and a field the
+  method leaves unset is left out of the response.
 - The input is one OpenAPI 3.0, 3.1, or 3.2 document, from a file, a URL, or stdin; a directory or a list of
   files is refused.
 - `--output-model-type` is `pydantic_v2.BaseModel` or `pydantic_v2.dataclass`; the other backends are
   refused. Custom templates, base classes, and types do not add backends.
-- `--use-missing-sentinel` needs `--target-pydantic-version 2.14`, with which the models import `MISSING` from
-  `pydantic` (`from pydantic import MISSING`). Model generation alone imports it from
-  `pydantic.experimental.missing_sentinel`, which pydantic 2.14 deprecates, when the target is unset or `2.12`, and
-  refuses the option for `2` and `2.11`. With the target unset, `2`, `2.11`, or `2.12`, server generation stops with
-  `Error: The fastapi target needs --target-pydantic-version 2.14 for --use-missing-sentinel, so that the models
-  import MISSING from pydantic` and exit code 2.
-- `pydantic_v2.dataclass` models need `--use-missing-sentinel`, and with it `--target-pydantic-version 2.14`, since a
-  dataclass field cannot tell an unset member from one set to `None`. Without the sentinel, generation stops with
-  `Error: The fastapi target needs --use-missing-sentinel with --target-pydantic-version 2.14 for
-  'pydantic_v2.dataclass' models, whose fields cannot tell an unset member from None` and exit code 2. With both, an
-  optional field without a default holds `MISSING`: a member a request leaves out reaches the method as `MISSING`,
-  and a field the method leaves unset is left out of the response.
-- `--openapi-scopes` includes `api`, so that the models cover the parameters, bodies, and responses of the
-  operations: `--openapi-scopes schemas api`. Without it, generation stops with
-  `Error: --generate-server requires --openapi-scopes to include api` and exit code 2, and the Python API raises
-  `datamodel_code_generator.Error` with the same message.
 - The model options apply as they do without `--generate-server`, so the same options write the same model files
   (only the command `--enable-command-header` records differs), and a model option the model generation refuses,
   such as `--collapse-root-models-name-strategy` without `--collapse-root-models`, is refused before anything is

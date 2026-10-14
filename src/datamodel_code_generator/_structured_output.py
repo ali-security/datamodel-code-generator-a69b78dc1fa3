@@ -26,7 +26,7 @@ class GeneratedFilePayload(BaseModel):
 
 
 _Absent: TypeAlias = SkipJsonSchema[None]
-_NEXT_STEPS = ("entrypoint", "implementation", "usage")
+_NEXT_STEPS = ("implied", "entrypoint", "implementation", "usage")
 _TARGET_DESCRIPTION = "The package and runtime dependencies of a server or client generation; absent for models only."
 
 
@@ -42,6 +42,14 @@ class TargetPayload(BaseModel):
 
     package: str
     dependencies: list[str]
+    implied: dict[str, Any] | _Absent = Field(
+        default=None,
+        description=(
+            "The settings the target needs that the run left unset and the values it gave them, keyed as "
+            "pyproject.toml keys them; absent when it implied none."
+        ),
+        json_schema_extra=_absent_when_unset,
+    )
 
 
 class EntrypointPayload(BaseModel):
@@ -264,10 +272,19 @@ def _dump_json(value: Any) -> str:
 
 def _dump_payload(payload: GenerationPayload | CheckOutputPayload) -> str:
     """Dump a payload, leaving out the target of a model-only run and the keys a server's or client's target lacks."""
+    return _dump_json(payload.model_dump(mode="json", exclude=_absent(payload)))
+
+
+def _absent(payload: GenerationPayload | CheckOutputPayload) -> dict[str, Any] | set[str]:
+    """Return the keys a payload leaves out: its target for a model-only run, or the keys its target lacks."""
     if (target := payload.target) is None:
-        return _dump_json(payload.model_dump(mode="json", exclude={"target"}))
-    absent = {name for name in _NEXT_STEPS if getattr(target, name, None) is None}
-    return _dump_json(payload.model_dump(mode="json", exclude={"target": absent}))
+        return {"target"}
+    return {"target": {name for name in _NEXT_STEPS if getattr(target, name, None) is None}}
+
+
+def batch_job_json(job: BatchJobPayload) -> dict[str, Any]:
+    """Return a job's entry of the batch payload, leaving out what its payload leaves out."""
+    return job.model_dump(mode="json", exclude={"result": _absent(job.result)})
 
 
 def _schema_with_metadata(schema: dict[str, Any], *, title: str, description: str) -> dict[str, Any]:

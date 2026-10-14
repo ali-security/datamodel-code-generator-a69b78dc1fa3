@@ -111,7 +111,8 @@ EXPERIMENTAL_FEATURES: dict[ExperimentalFeatureId, ExperimentalFeature] = {
             "options, and returns every generated file without an output. It needs Python 3.11 or later, both to "
             "run and as `--target-python-version`, `--use-missing-sentinel` for `pydantic_v2.dataclass` models, "
             "`--target-pydantic-version 2.14` with `--use-missing-sentinel`, and `--use-msgspec-tagged-unions` and "
-            "`--use-msgspec-nullable-enum-alias` for `msgspec.Struct` models."
+            "`--use-msgspec-nullable-enum-alias` for `msgspec.Struct` models; one left unset takes that value, as "
+            "with `--generate-server`."
         ),
     ),
     "cli-option.generate-schema-validators": ExperimentalFeature(
@@ -151,8 +152,10 @@ EXPERIMENTAL_FEATURES: dict[ExperimentalFeatureId, ExperimentalFeature] = {
             "generation prints a `uv add` command and the next steps to stderr. `generate()` takes them as "
             "`generate_server` and the `server_*` options, and returns every generated file without an output, "
             "writing no stubs. It needs Python 3.11 or later, both to run and as `--target-python-version`, "
-            "`--use-missing-sentinel` for `pydantic_v2.dataclass` models, and `--target-pydantic-version 2.14` "
-            "with `--use-missing-sentinel`."
+            "`--use-missing-sentinel` for `pydantic_v2.dataclass` models, `--target-pydantic-version 2.14` with "
+            "`--use-missing-sentinel`, and `--openapi-scopes` with `api`. A setting left unset, by the options, "
+            "`pyproject.toml`, `generate()`, and the preset, takes that value, and the command line prints how to "
+            "set it; one set otherwise is refused."
         ),
     ),
     "cli-option.install-skill": ExperimentalFeature(

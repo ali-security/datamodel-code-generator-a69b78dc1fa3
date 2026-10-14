@@ -280,7 +280,9 @@ server and client keys of `pyproject.toml` too, so a config it loads with `overr
 files of the configured run.
 
 The selector requires `server_package` and `server_model_package` (or the client ones), and `server_output` with an
-`output`. A missing option, an option the target cannot use, and a failure of the package raise
+`output`. A model setting the target needs that neither the arguments nor the preset set, such as `openapi_scopes` or
+`target_python_version`, takes the value the target needs, without printing anything; see
+[Requirements](fastapi-server.md#requirements). A missing option, an option the target cannot use, and a failure of the package raise
 `datamodel_code_generator.Error` with the message the command line prints. The `server_*` and `client_*` options have
 no effect without their selector, as their `pyproject.toml` keys do.
 

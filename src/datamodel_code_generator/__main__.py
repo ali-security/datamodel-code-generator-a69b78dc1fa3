@@ -2209,7 +2209,7 @@ def _run_jobs_json(
     """Spool validated job payloads until generation and publication both succeed."""
     from pydantic import ValidationError  # noqa: PLC0415
 
-    from datamodel_code_generator._structured_output import BatchJobPayload  # noqa: PLC0415
+    from datamodel_code_generator._structured_output import BatchJobPayload, batch_job_json  # noqa: PLC0415
 
     try:
         with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as batch_spool:
@@ -2260,9 +2260,7 @@ def _run_jobs_json(
                         )
                         return Exit.ERROR
                     json.dump(
-                        job_payload.model_dump(
-                            mode="json", exclude={"result": {"target"}} if job_payload.result.target is None else None
-                        ),
+                        batch_job_json(job_payload),
                         batch_spool,
                         ensure_ascii=False,
                         separators=(",", ":"),

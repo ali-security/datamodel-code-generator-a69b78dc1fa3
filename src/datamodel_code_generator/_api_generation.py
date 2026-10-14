@@ -34,6 +34,7 @@ from datamodel_code_generator._target_documents import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
+    from collections.abc import Set as AbstractSet
 
     from datamodel_code_generator import _GenerationInput  # pyright: ignore[reportPrivateUsage]
     from datamodel_code_generator._api_types import ArtifactKind, TargetKind
@@ -171,8 +172,9 @@ def prepare_target(
 ) -> GenerateConfig:
     """Validate target settings in the contract order and return the effective model settings.
 
-    The model settings stay as given, so a target writes the models a model-only run writes; a setting the target
-    needs but the settings lack is an `Error` that names the missing option.
+    A setting the target needs that no option, configuration key, `generate()` argument, or preset set takes the value
+    the target needs, as `implied_settings` says, so a target writes the models a model-only run writes with those
+    settings given; a setting given a value the target cannot use is an `Error` that names the option.
     """
     from datamodel_code_generator import (  # noqa: PLC0415
         Error,
@@ -196,6 +198,8 @@ def prepare_target(
             option_path="model_config.output",
             message=f"The {generator.kind} target needs model_config.output",
         )
+    if implied := implied_settings(model_config, _given_fields(model_config)):
+        model_config = model_config.model_copy(update=implied)
     target = model_config.target_pydantic_version
     if (sentinel := model_config.use_missing_sentinel) and (
         needed := pydantic_target_problem(model_config.output_model_type.value, target, sentinel=True)
@@ -211,12 +215,8 @@ def prepare_target(
             option_path="model_config.output_model_type",
             message=f"The {generator.kind} target does not support {backend.value!r}; use {allowed}",
         )
-    if effective.target_python_version.version_key < _PYTHON_MINIMUM:
-        raise config_error(
-            code="E_CONFIG_VALUE",
-            option_path="model_config.target_python_version",
-            message=f"The {generator.kind} target needs a target Python version of {_PYTHON_MINIMUM_TEXT} or later",
-        )
+    if (problem := python_problem(effective, generator.kind)) is not None:
+        raise config_error(code="E_CONFIG_VALUE", option_path="model_config.target_python_version", message=problem)
     if backend is DataModelType.PydanticV2Dataclass and not sentinel:
         raise config_error(
             code="E_CONFIG_VALUE",
@@ -259,6 +259,76 @@ def prepare_target(
     raise APIGenerationError((
         Diagnostic(code="E_INPUT_ROOT", severity="error", stage="input", message=message, option_path=option_path),
     ))
+
+
+def implied_settings(config: Any, explicit: AbstractSet[str]) -> dict[str, Any]:
+    """Return the model settings a server or client target needs that a config leaves unset, with the values it implies.
+
+    A setting is unset unless `explicit` names it, the fields an option, a configuration key, a `generate()` argument,
+    or a preset set. The target needs the `api` scope, Python 3.11, and its backend's settings: the MISSING sentinel
+    with pydantic 2.14 for Pydantic dataclasses, pydantic 2.14 for any sentinel, and the decodable unions and enums of
+    msgspec. A setting that was set keeps its value, which the target refuses when it cannot use it.
+    """
+    from datamodel_code_generator._target_render import PYDANTIC_BACKENDS, PYDANTIC_TARGET_MINIMUM  # noqa: PLC0415
+    from datamodel_code_generator.enums import DataModelType, OpenAPIScope, TargetPydanticVersion  # noqa: PLC0415
+    from datamodel_code_generator.format import PythonVersion  # noqa: PLC0415
+
+    implied: dict[str, Any] = {}
+    scopes = list(config.openapi_scopes or (OpenAPIScope.Schemas,))
+    if "openapi_scopes" not in explicit and OpenAPIScope.Api not in scopes:
+        implied["openapi_scopes"] = [*scopes, OpenAPIScope.Api]
+    if "target_python_version" not in explicit and config.target_python_version.version_key < _PYTHON_MINIMUM:
+        implied["target_python_version"] = PythonVersion(_PYTHON_MINIMUM_TEXT)
+    backend = DataModelType(config.output_model_type)
+    switches = {
+        DataModelType.PydanticV2Dataclass: ("use_missing_sentinel",),
+        DataModelType.MsgspecStruct: ("use_msgspec_tagged_unions", "use_msgspec_nullable_enum_alias"),
+    }.get(backend, ())
+    implied.update((name, True) for name in switches if name not in explicit and not getattr(config, name))
+    if (
+        implied.get("use_missing_sentinel", config.use_missing_sentinel)
+        and backend.value in PYDANTIC_BACKENDS
+        and "target_pydantic_version" not in explicit
+    ):
+        implied["target_pydantic_version"] = TargetPydanticVersion(PYDANTIC_TARGET_MINIMUM)
+    return implied
+
+
+def _given_fields(config: GenerateConfig) -> set[str]:
+    """Return the fields a config sets: the ones it was given, and the ones its preset sets, applied later."""
+    if config.preset is None:
+        return set(config.model_fields_set)
+    from datamodel_code_generator.preset import PresetContext, resolve_preset_config_updates  # noqa: PLC0415
+
+    preset = resolve_preset_config_updates(
+        config.preset,
+        context=PresetContext(
+            input_file_type=config.input_file_type,
+            output_model_type=config.output_model_type,
+            target_python_version=config.target_python_version,
+        ),
+        use_annotated=config.use_annotated,
+        explicit_fields=config.model_fields_set,
+    )
+    fixed = () if preset.target_python_version is None else ("target_python_version",)
+    return {*config.model_fields_set, *fixed, *(item.field_name for item in preset.items)}
+
+
+def python_problem(config: Any, kind: str) -> str | None:
+    """Say why a target cannot use a config's target Python version, naming the preset that set it, or None.
+
+    A preset refuses a target Python version given beside it that differs from its own, so with a preset the version
+    is the preset's. The command line drops the preset from the settings it generates with, so it asks before the run.
+    """
+    if (version := config.target_python_version).version_key >= _PYTHON_MINIMUM:
+        return None
+    message = f"The {kind} target needs a target Python version of {_PYTHON_MINIMUM_TEXT} or later"
+    if config.preset is None:
+        return message
+    from datamodel_code_generator.preset import _coerce_preset_name  # noqa: PLC0415  # pyright: ignore[reportPrivateUsage]
+
+    name = _coerce_preset_name(config.preset).value
+    return f"{message}, which the preset {name} sets to {version.value}: use a preset for Python 3.11 or later"
 
 
 def _target_pydantic_error(generator: TargetGenerator, needed: str) -> APIGenerationError:

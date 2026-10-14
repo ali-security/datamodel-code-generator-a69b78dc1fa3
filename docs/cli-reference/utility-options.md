@@ -359,8 +359,9 @@ With `--generate-server` or `--generate-client`, the generation, check, and
 input-diff payloads also have a `target` object: `package` is the import path
 of the generated package, and `dependencies` lists its runtime requirements as
 PEP 508 strings, the ones the `uv add` command on stderr names. A check or input
-diff lists those of the current input. Payloads of model-only generation leave
-`target` out. The generation payload's `target` also carries the next steps that
+diff lists those of the current input, and `implied` the model settings the run
+left unset and the target set, keyed as `pyproject.toml` keys them, when there
+are any. Payloads of model-only generation leave `target` out. The generation payload's `target` also carries the next steps that
 stderr prints: `readme`, the path of the package README; for a server,
 `entrypoint` (`app`, the import string of the application in `main.py`, and
 `path`) and `implementation`, one entry for each module of yours that `main.py`

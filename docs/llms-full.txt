@@ -246,7 +246,8 @@ datamodel-codegen \
 <!-- END AUTO-GENERATED DOC EXAMPLE: index.server-client.commands -->
 
 `--openapi-scopes` must include `api`, and both need Python 3.11 or later, to run and as the target version (the preset
-sets 3.12). Each run ends by printing the runtime dependencies of its package to stderr:
+sets 3.12); left unset, the run sets them and says how. Each run ends by printing the runtime dependencies of its
+package to stderr:
 
 <!-- BEGIN AUTO-GENERATED DOC EXAMPLE: index.server-client.notice -->
 <!-- fmt: off -->
@@ -10303,7 +10304,9 @@ server and client keys of `pyproject.toml` too, so a config it loads with `overr
 files of the configured run.
 
 The selector requires `server_package` and `server_model_package` (or the client ones), and `server_output` with an
-`output`. A missing option, an option the target cannot use, and a failure of the package raise
+`output`. A model setting the target needs that neither the arguments nor the preset set, such as `openapi_scopes` or
+`target_python_version`, takes the value the target needs, without printing anything; see
+[Requirements](fastapi-server.md#requirements). A missing option, an option the target cannot use, and a failure of the package raise
 `datamodel_code_generator.Error` with the message the command line prints. The `server_*` and `client_*` options have
 no effect without their selector, as their `pyproject.toml` keys do.
 
@@ -12773,29 +12776,38 @@ bytes, and `--check` reports a module that differs.
 
 ### Requirements
 
-- Server generation needs Python 3.11 or later, both to run `datamodel-codegen` and as the target Python version.
-  Set the target with `--target-python-version` or a preset that sets it, as the quick start does; the default
-  target, 3.10, and running on Python 3.10 are both refused with `Error:` and exit code 2.
+Server generation needs some model settings. A setting you leave unset, on the command line, in
+`[tool.datamodel-codegen]` or a job's table, in the arguments of `generate()`, and in the preset, takes the value
+the server needs; a value you set yourself that the server cannot use stops the run with `Error:` and exit code 2,
+or an `Error` from `generate()`. The models are those of a model-only run given the same settings. After a command
+line run that set any, stderr shows how to set them yourself, before the `uv add` notice: the command as you ran it
+with the options appended, or, for settings from `pyproject.toml`, the lines to add to the table that held them;
+`--output-format json` names them in `target.implied`, keyed as `pyproject.toml` keys them. `generate()` prints
+nothing. Presets stay as they are, without these settings.
+
+- Python 3.11 or later, both to run `datamodel-codegen` and as the target Python version: an unset
+  `--target-python-version` is `3.11`. An older one, set yourself or by a preset for Python 3.10, is refused; the
+  message names the preset, so that you pick one for Python 3.11 or later. Running on Python 3.10 is refused too.
+- `--openapi-scopes` includes `api`, so that the models cover the parameters, bodies, and responses of the
+  operations: unset, it is `schemas api`. Scopes you give without `api` stop the run with
+  `Error: --generate-server requires --openapi-scopes to include api`.
+- `--use-missing-sentinel` needs `--target-pydantic-version 2.14`, with which the models import `MISSING` from
+  `pydantic` (`from pydantic import MISSING`): with the sentinel, an unset target is `2.14`. Model generation alone
+  imports it from `pydantic.experimental.missing_sentinel`, which pydantic 2.14 deprecates, when the target is unset
+  or `2.12`, and refuses the option for `2` and `2.11`. With a target of `2`, `2.11`, or `2.12` that you set, server
+  generation stops with `Error: The fastapi target needs --target-pydantic-version 2.14 for --use-missing-sentinel,
+  so that the models import MISSING from pydantic`.
+- `pydantic_v2.dataclass` models need `--use-missing-sentinel`, and with it `--target-pydantic-version 2.14`, since a
+  dataclass field cannot tell an unset member from one set to `None`: unset, the sentinel is on and the target is
+  `2.14`. With `use-missing-sentinel = false` in `pyproject.toml`, generation stops with
+  `Error: The fastapi target needs --use-missing-sentinel with --target-pydantic-version 2.14 for
+  'pydantic_v2.dataclass' models, whose fields cannot tell an unset member from None`. With both, an optional field
+  without a default holds `MISSING`: a member a request leaves out reaches the method as `MISSING`, and a field the
+  method leaves unset is left out of the response.
 - The input is one OpenAPI 3.0, 3.1, or 3.2 document, from a file, a URL, or stdin; a directory or a list of
   files is refused.
 - `--output-model-type` is `pydantic_v2.BaseModel` or `pydantic_v2.dataclass`; the other backends are
   refused. Custom templates, base classes, and types do not add backends.
-- `--use-missing-sentinel` needs `--target-pydantic-version 2.14`, with which the models import `MISSING` from
-  `pydantic` (`from pydantic import MISSING`). Model generation alone imports it from
-  `pydantic.experimental.missing_sentinel`, which pydantic 2.14 deprecates, when the target is unset or `2.12`, and
-  refuses the option for `2` and `2.11`. With the target unset, `2`, `2.11`, or `2.12`, server generation stops with
-  `Error: The fastapi target needs --target-pydantic-version 2.14 for --use-missing-sentinel, so that the models
-  import MISSING from pydantic` and exit code 2.
-- `pydantic_v2.dataclass` models need `--use-missing-sentinel`, and with it `--target-pydantic-version 2.14`, since a
-  dataclass field cannot tell an unset member from one set to `None`. Without the sentinel, generation stops with
-  `Error: The fastapi target needs --use-missing-sentinel with --target-pydantic-version 2.14 for
-  'pydantic_v2.dataclass' models, whose fields cannot tell an unset member from None` and exit code 2. With both, an
-  optional field without a default holds `MISSING`: a member a request leaves out reaches the method as `MISSING`,
-  and a field the method leaves unset is left out of the response.
-- `--openapi-scopes` includes `api`, so that the models cover the parameters, bodies, and responses of the
-  operations: `--openapi-scopes schemas api`. Without it, generation stops with
-  `Error: --generate-server requires --openapi-scopes to include api` and exit code 2, and the Python API raises
-  `datamodel_code_generator.Error` with the same message.
 - The model options apply as they do without `--generate-server`, so the same options write the same model files
   (only the command `--enable-command-header` records differs), and a model option the model generation refuses,
   such as `--collapse-root-models-name-strategy` without `--collapse-root-models`, is refused before anything is
@@ -14808,14 +14820,18 @@ as they do with `--generate-server`. Use `--check` in CI to fail when the packag
 ### Requirements
 
 Like the server, the client needs Python 3.11 or later, both to run `datamodel-codegen` and as the target Python
-version; a target below 3.11, including the default 3.10, is refused.
+version. As for the server, a setting the client needs that you leave unset takes the value it needs, and a value you
+set that it cannot use is refused; see the server's [Requirements](fastapi-server.md#requirements), which also
+describes the notice that shows how to set them and `target.implied`. An unset target Python version is `3.11`; one
+below 3.11 that you or a preset set is refused.
 
 Settings of the generated client that change how its methods are declared or checked do not change the models: the
 same OpenAPI document and model settings produce the same model files whichever client settings you choose.
 
 The model's `openapi_scopes` must include `api`, so that the models cover the parameters, bodies, and responses of
-the operations; without it, generation stops with `Error: --generate-client requires --openapi-scopes to include api`
-and exit code 2, and the Python API raises `datamodel_code_generator.Error`. The client keeps every model setting
+the operations: unset, it is `schemas api`; scopes you give without `api` stop the run with
+`Error: --generate-client requires --openapi-scopes to include api` and exit code 2, and the Python API raises
+`datamodel_code_generator.Error`. The client keeps every model setting
 as given, including the generation timestamp, which `disable_timestamp` leaves out. The client files are headed,
 formatted, and encoded like the model files, by the same model settings: `formatters`, `custom_formatters` and
 `custom_formatters_kwargs`, `custom_file_header`, `custom_file_header_path` and `custom_file_header_mode`,
@@ -14836,16 +14852,18 @@ or `2.12`) is refused with `Error:` and exit code 2 for those models; leave it u
 backends do not use the option.
 
 `--use-missing-sentinel` needs `--target-pydantic-version 2.14`, with which the models import `MISSING` from
-`pydantic`. Model generation alone imports it from `pydantic.experimental.missing_sentinel`, which pydantic 2.14
-deprecates, when the target is unset or `2.12`, and refuses the option for `2` and `2.11`. With the target unset,
-`2`, `2.11`, or `2.12`, client generation stops with `Error: The client target needs --target-pydantic-version 2.14
-for --use-missing-sentinel, so that the models import MISSING from pydantic` and exit code 2.
+`pydantic`; with the sentinel, an unset target is `2.14`. Model generation alone imports it from
+`pydantic.experimental.missing_sentinel`, which pydantic 2.14 deprecates, when the target is unset or `2.12`, and
+refuses the option for `2` and `2.11`. With a target of `2`, `2.11`, or `2.12` that you set, client generation
+stops with `Error: The client target needs --target-pydantic-version 2.14 for --use-missing-sentinel, so that the
+models import MISSING from pydantic` and exit code 2.
 
 A `pydantic_v2.dataclass` field cannot tell an unset member from one set to `None`, so client generation with
 `--output-model-type pydantic_v2.dataclass` needs `--use-missing-sentinel`, and with it
-`--target-pydantic-version 2.14`. Without the sentinel, generation stops with `Error: The client target needs
---use-missing-sentinel with --target-pydantic-version 2.14 for 'pydantic_v2.dataclass' models, whose fields cannot
-tell an unset member from None` and exit code 2. With both, an optional field without a default holds `MISSING`, as it
+`--target-pydantic-version 2.14`: unset, the sentinel is on and the target is `2.14`. With the sentinel turned off,
+`use-missing-sentinel = false` in `pyproject.toml` or `use_missing_sentinel=False` for `generate()`, generation
+stops with `Error: The client target needs --use-missing-sentinel with --target-pydantic-version 2.14 for
+'pydantic_v2.dataclass' models, whose fields cannot tell an unset member from None` and exit code 2. With both, an optional field without a default holds `MISSING`, as it
 does for `pydantic_v2.BaseModel` when the options are set:
 
 ```python
@@ -14867,8 +14885,9 @@ msgspec decodes a union of structs only when every struct in it is tagged, and a
 all `str` or all `int` values, so client generation with `--output-model-type msgspec.Struct` needs
 [`--use-msgspec-tagged-unions`](cli-reference/model-customization.md#use-msgspec-tagged-unions) and
 [`--use-msgspec-nullable-enum-alias`](cli-reference/model-customization.md#use-msgspec-nullable-enum-alias), whether
-or not the document declares a discriminated union or an enum that lists `null`. Without them, generation stops with
-exit code 2 and an error that names every missing one, such as `Error: The client target needs
+or not the document declares a discriminated union or an enum that lists `null`: unset, both are on. With one turned
+off in `pyproject.toml` or for `generate()`, generation stops with exit code 2 and an error that names every one
+turned off, such as `Error: The client target needs
 --use-msgspec-tagged-unions for 'msgspec.Struct' models, so that their discriminated unions can be decoded; The
 client target needs --use-msgspec-nullable-enum-alias for 'msgspec.Struct' models, so that their enums that list null
 can be decoded`, and the Python API raises `datamodel_code_generator.Error`. A union of structs that has no
@@ -54038,8 +54057,9 @@ With `--generate-server` or `--generate-client`, the generation, check, and
 input-diff payloads also have a `target` object: `package` is the import path
 of the generated package, and `dependencies` lists its runtime requirements as
 PEP 508 strings, the ones the `uv add` command on stderr names. A check or input
-diff lists those of the current input. Payloads of model-only generation leave
-`target` out. The generation payload's `target` also carries the next steps that
+diff lists those of the current input, and `implied` the model settings the run
+left unset and the target set, keyed as `pyproject.toml` keys them, when there
+are any. Payloads of model-only generation leave `target` out. The generation payload's `target` also carries the next steps that
 stderr prints: `readme`, the path of the package README; for a server,
 `entrypoint` (`app`, the import string of the application in `main.py`, and
 `path`) and `implementation`, one entry for each module of yours that `main.py`
@@ -55521,8 +55541,9 @@ With `--generate-server` or `--generate-client`, the generation, check, and
 input-diff payloads also have a `target` object: `package` is the import path
 of the generated package, and `dependencies` lists its runtime requirements as
 PEP 508 strings, the ones the `uv add` command on stderr names. A check or input
-diff lists those of the current input. Payloads of model-only generation leave
-`target` out. The generation payload's `target` also carries the next steps that
+diff lists those of the current input, and `implied` the model settings the run
+left unset and the target set, keyed as `pyproject.toml` keys them, when there
+are any. Payloads of model-only generation leave `target` out. The generation payload's `target` also carries the next steps that
 stderr prints: `readme`, the path of the package README; for a server,
 `entrypoint` (`app`, the import string of the application in `main.py`, and
 `path`) and `implementation`, one entry for each module of yours that `main.py`
@@ -56177,7 +56198,7 @@ The lock stores opaque SHA-256 request-identity digests and SHA-256 body digests
 
 HTTPX2 client generation from the CLI is experimental; its options and generated package may change.
 
-`--generate-client httpx2` generates the models at `--output` and a client package at `--client-output`; `--client-package` and `--client-model-package` name their import paths, and the other `--client-*` options configure the package. Like model options, they can be set in `[tool.datamodel-codegen]` of `pyproject.toml`, in its profiles, and in its jobs. `--check`, `--diff-against`, `--watch`, `--output-format json`, and the `uv add` and next-step notice on stderr work as with `--generate-server`. `generate()` takes them as `generate_client` and the `client_*` options, and returns every generated file without an output. It needs Python 3.11 or later, both to run and as `--target-python-version`, `--use-missing-sentinel` for `pydantic_v2.dataclass` models, `--target-pydantic-version 2.14` with `--use-missing-sentinel`, and `--use-msgspec-tagged-unions` and `--use-msgspec-nullable-enum-alias` for `msgspec.Struct` models.
+`--generate-client httpx2` generates the models at `--output` and a client package at `--client-output`; `--client-package` and `--client-model-package` name their import paths, and the other `--client-*` options configure the package. Like model options, they can be set in `[tool.datamodel-codegen]` of `pyproject.toml`, in its profiles, and in its jobs. `--check`, `--diff-against`, `--watch`, `--output-format json`, and the `uv add` and next-step notice on stderr work as with `--generate-server`. `generate()` takes them as `generate_client` and the `client_*` options, and returns every generated file without an output. It needs Python 3.11 or later, both to run and as `--target-python-version`, `--use-missing-sentinel` for `pydantic_v2.dataclass` models, `--target-pydantic-version 2.14` with `--use-missing-sentinel`, and `--use-msgspec-tagged-unions` and `--use-msgspec-nullable-enum-alias` for `msgspec.Struct` models; one left unset takes that value, as with `--generate-server`.
 
 ### `cli-option.generate-schema-validators`
 
@@ -56197,7 +56218,7 @@ The option currently targets Pydantic v2 BaseModel output and covers selected ob
 
 FastAPI server generation from the CLI is experimental; its options and generated package may change.
 
-`--generate-server fastapi` generates the models at `--output` and a server package at `--server-output`, whose `main.py` serves the application with the implementations in the `services` package beside it; generation writes each missing module of `services` once, with stubs, and never overwrites one. `--server-package` and `--server-model-package` name their import paths, and the other `--server-*` options configure the package. Like model options, they can be set in `[tool.datamodel-codegen]` of `pyproject.toml`, in its profiles, and in its jobs. `--check` compares without writing, `--diff-against` compares the files two inputs render, `--watch` regenerates after input changes, `--output-format json` uses the model generation, check, and input-diff payloads, and generation prints a `uv add` command and the next steps to stderr. `generate()` takes them as `generate_server` and the `server_*` options, and returns every generated file without an output, writing no stubs. It needs Python 3.11 or later, both to run and as `--target-python-version`, `--use-missing-sentinel` for `pydantic_v2.dataclass` models, and `--target-pydantic-version 2.14` with `--use-missing-sentinel`.
+`--generate-server fastapi` generates the models at `--output` and a server package at `--server-output`, whose `main.py` serves the application with the implementations in the `services` package beside it; generation writes each missing module of `services` once, with stubs, and never overwrites one. `--server-package` and `--server-model-package` name their import paths, and the other `--server-*` options configure the package. Like model options, they can be set in `[tool.datamodel-codegen]` of `pyproject.toml`, in its profiles, and in its jobs. `--check` compares without writing, `--diff-against` compares the files two inputs render, `--watch` regenerates after input changes, `--output-format json` uses the model generation, check, and input-diff payloads, and generation prints a `uv add` command and the next steps to stderr. `generate()` takes them as `generate_server` and the `server_*` options, and returns every generated file without an output, writing no stubs. It needs Python 3.11 or later, both to run and as `--target-python-version`, `--use-missing-sentinel` for `pydantic_v2.dataclass` models, `--target-pydantic-version 2.14` with `--use-missing-sentinel`, and `--openapi-scopes` with `api`. A setting left unset, by the options, `pyproject.toml`, `generate()`, and the preset, takes that value, and the command line prints how to set it; one set otherwise is refused.
 
 ### `cli-option.install-skill`
 

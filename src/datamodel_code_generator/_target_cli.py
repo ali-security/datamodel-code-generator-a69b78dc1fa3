@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import traceback
 from functools import partial
+from itertools import starmap
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -42,19 +43,80 @@ def run_target(  # noqa: PLR0913, PLR0917
     batch `job` appends the planned target to the targets its `batch` has planned instead of publishing it, and its
     models record into the batch's remote `lock`. A single run publishes its target as a batch of one, so a failed
     publication is reported as for the model runs that publish through the same journal.
-    """
-    from datamodel_code_generator._api_generation import model_requirement  # noqa: PLC0415
 
+    A setting the target needs that no option, key, or preset set takes the value the target needs. After a run that
+    succeeds, stderr shows how to set it: the command as run with the options appended, or the lines of the
+    `pyproject.toml` table that held the settings; the JSON payloads name it under `target.implied`.
+    """
+    from datamodel_code_generator._api_generation import (  # noqa: PLC0415
+        implied_settings,
+        model_requirement,
+        python_problem,
+    )
+
+    if implied := implied_settings(config, config.model_fields_set):
+        config = config.model_copy(update=implied)
+    if config.preset is not None and (problem := python_problem(config, _kind(config))) is not None:
+        print(f"Error: --target-python-version: {problem}", file=sys.stderr)  # noqa: T201
+        return _ERROR
     if requirement := model_requirement(config.openapi_scopes, _selector(config)):
         print(f"Error: {requirement}", file=sys.stderr)  # noqa: T201
         return _ERROR
     try:
-        return _run(args, namespace, config, pyproject_path, batch, lock, job)
+        return _run(args, namespace, config, pyproject_path, batch, lock, job, implied)
     except Exception as error:  # noqa: BLE001
         from datamodel_code_generator._target_selection import keyed  # noqa: PLC0415
 
         _failure(keyed(error, config), encoding=config.encoding)
         return _ERROR
+
+
+def _implied_option(name: str, value: object) -> tuple[str, Any]:
+    """Return the key of an implied setting and its JSON value, as `pyproject.toml` spells them."""
+    match value:
+        case list():
+            data: Any = [item.value for item in cast("list[Any]", value)]
+        case bool():
+            data = value
+        case _:
+            data = cast("Any", value).value
+    return name.replace("_", "-"), data
+
+
+def _print_notice(notice: str | None) -> None:
+    if notice is not None:
+        print(notice, file=sys.stderr)  # noqa: T201
+
+
+def _implied_notice(
+    implied: dict[str, Any], args: Sequence[str], selector: str, pyproject: Path | None, job: str
+) -> str | None:
+    """Return how to set the implied settings: the command with their options, or the lines of the table to add.
+
+    A run that implied nothing has no notice.
+    """
+    if not implied:
+        return None
+    import json  # noqa: PLC0415
+    import shlex  # noqa: PLC0415
+
+    options = dict(starmap(_implied_option, implied.items()))
+    lead = f"{selector} set the options it needs that you left unset; to set them yourself"
+    if job or pyproject is not None:
+        table = f"tool.datamodel-codegen.jobs.{job}" if job else "tool.datamodel-codegen"
+        lines = (f"  {key} = {json.dumps(data)}" for key, data in options.items())
+        return "\n".join((f"{lead}, add to [{table}] of pyproject.toml:", *lines))
+    flags = [
+        token
+        for key, data in options.items()
+        for token in (f"--{key}", *(data if isinstance(data, list) else () if data is True else (data,)))
+    ]
+    return f"{lead}, run:\n  {shlex.join(('datamodel-codegen', *args, *flags))}"
+
+
+def _kind(config: Any) -> str:
+    """Return the kind of the run's target, as its messages name it."""
+    return "fastapi" if config.generate_client is None else "client"
 
 
 def _selector(config: Any) -> str:
@@ -70,6 +132,7 @@ def _run(  # noqa: PLR0913, PLR0917
     batch: list[tuple[str, PlannedTarget, str]] | None,
     lock: Any,
     job: str,
+    implied: dict[str, Any],
 ) -> int:
     from datamodel_code_generator.__main__ import (  # noqa: PLC0415
         _publish_or_error,  # pyright: ignore[reportPrivateUsage]
@@ -90,10 +153,12 @@ def _run(  # noqa: PLR0913, PLR0917
     if (source := config.url or config.input) is None:
         prepare_target("", effective, generator)
         source = sys.stdin.read()
+    notice = _implied_notice(implied, args, _selector(config), pyproject_path, job)
     if config.check:
         project = render_target(source, model_config=effective, config=target, generator=generator)
         comparison = _compare_target(project, config.output, target.output, config.encoding)
-        _write_comparison_output(comparison, namespace.output_format, target=_target_payload(target, project))
+        _write_comparison_output(comparison, namespace.output_format, target=_target_payload(target, project, implied))
+        _print_notice(notice)
         return _DIFF if comparison.differences else _OK
     if config.diff_against is not None:
         effective = effective.model_copy(update={"input_filename": "<input>"})
@@ -105,22 +170,26 @@ def _run(  # noqa: PLR0913, PLR0917
             current.project, config.output, target.output, config.encoding, baseline=baseline.project
         )
         _write_comparison_output(
-            comparison, namespace.output_format, kind="input-diff", target=_target_payload(target, current.project)
+            comparison,
+            namespace.output_format,
+            kind="input-diff",
+            target=_target_payload(target, current.project, implied),
         )
+        _print_notice(notice)
         return _DIFF if comparison.differences else _OK
     json_output = namespace.output_format == "json"
     if batch is not None:
         timestamp = next((earlier.timestamp for _, earlier, _ in batch if earlier.timestamp is not None), None)
         planned = plan_target(source, model_config=effective, config=target, generator=generator, timestamp=timestamp)
         if json_output:
-            print(_target_json(planned.project, config.output, config.encoding, target))  # noqa: T201
-        batch.append((job, planned, _next_step(target, planned.project)))
+            print(_target_json(planned.project, config.output, config.encoding, target, implied))  # noqa: T201
+        batch.append((job, planned, _next_step(target, planned.project, notice)))
         return _OK
     planned = plan_target(source, model_config=effective, config=target, generator=generator, publish=True)
     project = planned.project
-    output = _target_json(project, config.output, config.encoding, target) if json_output else None
+    output = _target_json(project, config.output, config.encoding, target, implied) if json_output else None
     (staged,) = _stage_job_plans((_single_job_plan(config, pyproject_path),))
-    cast("list[Any]", staged.targets).append((job, planned, _next_step(target, project)))
+    cast("list[Any]", staged.targets).append((job, planned, _next_step(target, project, notice)))
     if (failure := _publish_or_error((staged,))) is not None:
         return int(failure)
     if output is not None:
@@ -151,14 +220,25 @@ def _payload_base(project: GeneratedProject, models: Path) -> Path:
     return models.parent if models in rendered or (not rendered and models.suffix) else models
 
 
-def _target_payload(target: TargetConfig, project: GeneratedProject) -> TargetPayload:
-    """Name the generated package and the requirements it needs at run time, as the uv add notice does."""
+def _target_payload(target: TargetConfig, project: GeneratedProject, implied: dict[str, Any]) -> TargetPayload:
+    """Name the generated package and the requirements it needs at run time, as the uv add notice does.
+
+    The settings the target implied are keyed as `pyproject.toml` keys them, or left out when it implied none.
+    """
     from datamodel_code_generator._structured_output import TargetPayload  # noqa: PLC0415
 
-    return TargetPayload(package=target.package, dependencies=list(project.dependencies))
+    return TargetPayload(
+        package=target.package, dependencies=list(project.dependencies), implied=_implied_payload(implied)
+    )
 
 
-def _target_json(project: GeneratedProject, models: Path, encoding: str, target: TargetConfig) -> str:
+def _implied_payload(implied: dict[str, Any]) -> dict[str, Any] | None:
+    return dict(starmap(_implied_option, implied.items())) or None
+
+
+def _target_json(
+    project: GeneratedProject, models: Path, encoding: str, target: TargetConfig, implied: dict[str, Any]
+) -> str:
     """Emit rendered model and target text, read like their published files, with the existing generation payload.
 
     As in the model payload, a path is relative to the model output directory; a file outside it has an absolute path.
@@ -208,6 +288,7 @@ def _target_json(project: GeneratedProject, models: Path, encoding: str, target:
         entrypoint=entrypoint,
         implementation=implementation,
         usage=steps.usage,
+        implied=_implied_payload(implied),
     )
     return generation_output_json(files, output=models.as_posix(), target=payload)
 
@@ -340,15 +421,16 @@ def _existing(path: Path, baseline_root: Path | None) -> Path:
     return path if baseline_root is None else baseline_root.joinpath(*Path.cwd().joinpath(path).parts[1:])
 
 
-def _next_step(target: TargetConfig, project: GeneratedProject) -> str:
+def _next_step(target: TargetConfig, project: GeneratedProject, implied: str | None) -> str:
     """Return the uv command that adds the generated package's runtime dependencies, then what to do next.
 
-    A server names the modules to implement, marking those the run creates, and how to run its entrypoint; a client
-    shows a call of its first operation. Both name their README.
+    The notice of the settings the target implied, if any, comes first. A server names the modules to implement,
+    marking those the run creates, and how to run its entrypoint; a client shows a call of its first operation. Both
+    name their README.
     """
     arguments = " ".join(f'"{dependency}"' for dependency in project.dependencies)
     lines = [f"Add the runtime dependencies of {target.package} to your project:", f"  uv add {arguments}"]
-    return "\n".join((*lines, *_steps(project.next_steps)))
+    return "\n".join((*((implied,) if implied else ()), *lines, *_steps(project.next_steps)))
 
 
 def _steps(steps: NextSteps) -> list[str]:

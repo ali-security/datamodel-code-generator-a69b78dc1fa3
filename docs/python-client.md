@@ -1375,14 +1375,18 @@ as they do with `--generate-server`. Use `--check` in CI to fail when the packag
 ### Requirements
 
 Like the server, the client needs Python 3.11 or later, both to run `datamodel-codegen` and as the target Python
-version; a target below 3.11, including the default 3.10, is refused.
+version. As for the server, a setting the client needs that you leave unset takes the value it needs, and a value you
+set that it cannot use is refused; see the server's [Requirements](fastapi-server.md#requirements), which also
+describes the notice that shows how to set them and `target.implied`. An unset target Python version is `3.11`; one
+below 3.11 that you or a preset set is refused.
 
 Settings of the generated client that change how its methods are declared or checked do not change the models: the
 same OpenAPI document and model settings produce the same model files whichever client settings you choose.
 
 The model's `openapi_scopes` must include `api`, so that the models cover the parameters, bodies, and responses of
-the operations; without it, generation stops with `Error: --generate-client requires --openapi-scopes to include api`
-and exit code 2, and the Python API raises `datamodel_code_generator.Error`. The client keeps every model setting
+the operations: unset, it is `schemas api`; scopes you give without `api` stop the run with
+`Error: --generate-client requires --openapi-scopes to include api` and exit code 2, and the Python API raises
+`datamodel_code_generator.Error`. The client keeps every model setting
 as given, including the generation timestamp, which `disable_timestamp` leaves out. The client files are headed,
 formatted, and encoded like the model files, by the same model settings: `formatters`, `custom_formatters` and
 `custom_formatters_kwargs`, `custom_file_header`, `custom_file_header_path` and `custom_file_header_mode`,
@@ -1403,16 +1407,18 @@ or `2.12`) is refused with `Error:` and exit code 2 for those models; leave it u
 backends do not use the option.
 
 `--use-missing-sentinel` needs `--target-pydantic-version 2.14`, with which the models import `MISSING` from
-`pydantic`. Model generation alone imports it from `pydantic.experimental.missing_sentinel`, which pydantic 2.14
-deprecates, when the target is unset or `2.12`, and refuses the option for `2` and `2.11`. With the target unset,
-`2`, `2.11`, or `2.12`, client generation stops with `Error: The client target needs --target-pydantic-version 2.14
-for --use-missing-sentinel, so that the models import MISSING from pydantic` and exit code 2.
+`pydantic`; with the sentinel, an unset target is `2.14`. Model generation alone imports it from
+`pydantic.experimental.missing_sentinel`, which pydantic 2.14 deprecates, when the target is unset or `2.12`, and
+refuses the option for `2` and `2.11`. With a target of `2`, `2.11`, or `2.12` that you set, client generation
+stops with `Error: The client target needs --target-pydantic-version 2.14 for --use-missing-sentinel, so that the
+models import MISSING from pydantic` and exit code 2.
 
 A `pydantic_v2.dataclass` field cannot tell an unset member from one set to `None`, so client generation with
 `--output-model-type pydantic_v2.dataclass` needs `--use-missing-sentinel`, and with it
-`--target-pydantic-version 2.14`. Without the sentinel, generation stops with `Error: The client target needs
---use-missing-sentinel with --target-pydantic-version 2.14 for 'pydantic_v2.dataclass' models, whose fields cannot
-tell an unset member from None` and exit code 2. With both, an optional field without a default holds `MISSING`, as it
+`--target-pydantic-version 2.14`: unset, the sentinel is on and the target is `2.14`. With the sentinel turned off,
+`use-missing-sentinel = false` in `pyproject.toml` or `use_missing_sentinel=False` for `generate()`, generation
+stops with `Error: The client target needs --use-missing-sentinel with --target-pydantic-version 2.14 for
+'pydantic_v2.dataclass' models, whose fields cannot tell an unset member from None` and exit code 2. With both, an optional field without a default holds `MISSING`, as it
 does for `pydantic_v2.BaseModel` when the options are set:
 
 ```python
@@ -1434,8 +1440,9 @@ msgspec decodes a union of structs only when every struct in it is tagged, and a
 all `str` or all `int` values, so client generation with `--output-model-type msgspec.Struct` needs
 [`--use-msgspec-tagged-unions`](cli-reference/model-customization.md#use-msgspec-tagged-unions) and
 [`--use-msgspec-nullable-enum-alias`](cli-reference/model-customization.md#use-msgspec-nullable-enum-alias), whether
-or not the document declares a discriminated union or an enum that lists `null`. Without them, generation stops with
-exit code 2 and an error that names every missing one, such as `Error: The client target needs
+or not the document declares a discriminated union or an enum that lists `null`: unset, both are on. With one turned
+off in `pyproject.toml` or for `generate()`, generation stops with exit code 2 and an error that names every one
+turned off, such as `Error: The client target needs
 --use-msgspec-tagged-unions for 'msgspec.Struct' models, so that their discriminated unions can be decoded; The
 client target needs --use-msgspec-nullable-enum-alias for 'msgspec.Struct' models, so that their enums that list null
 can be decoded`, and the Python API raises `datamodel_code_generator.Error`. A union of structs that has no

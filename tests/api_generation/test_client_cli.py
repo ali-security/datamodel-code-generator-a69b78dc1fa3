@@ -695,20 +695,18 @@ def test_client_cli_target_pydantic(
 @pytest.mark.parametrize(
     "arguments",
     [
-        [],
         ["--target-pydantic-version", "2"],
         ["--target-pydantic-version", "2.11"],
         ["--target-pydantic-version", "2.12"],
-        ["--output-model-type", "pydantic_v2.dataclass"],
-        ["--output-model-type", "pydantic_v2.dataclass", "--check"],
         ["--output-model-type", "pydantic_v2.dataclass", "--target-pydantic-version", "2.11"],
+        ["--output-model-type", "pydantic_v2.dataclass", "--target-pydantic-version", "2.11", "--check"],
     ],
-    ids=["unset", "2", "2.11", "2.12", "dataclass", "dataclass-check", "dataclass-2.11"],
+    ids=["2", "2.11", "2.12", "dataclass-2.11", "dataclass-2.11-check"],
 )
 def test_client_cli_missing_sentinel_target(
     arguments: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Refuse a client whose models use MISSING without the target pydantic version that imports it from pydantic.
+    """Refuse a client whose models use MISSING with a given target pydantic version that cannot import it.
 
     The models stay those of a model-only run, which imports MISSING from pydantic for that target only. A target
     older than the sentinel's own minimum gets the same message, so that one change fixes the run.
@@ -748,9 +746,17 @@ def test_client_cli_missing_sentinel_target_pyproject(
     )
 
 
-@pytest.mark.parametrize("backend", ["msgspec.Struct", "dataclasses.dataclass", "typing.TypedDict"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        ["msgspec.Struct", "--use-msgspec-tagged-unions", "--use-msgspec-nullable-enum-alias"],
+        ["dataclasses.dataclass"],
+        ["typing.TypedDict"],
+    ],
+    ids=["msgspec.Struct", "dataclasses.dataclass", "typing.TypedDict"],
+)
 def test_client_cli_missing_sentinel_backend(
-    backend: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    backend: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Refuse the sentinel for a backend without pydantic as a model-only run does, whatever the target says."""
     monkeypatch.chdir(tmp_path)
@@ -758,7 +764,7 @@ def test_client_cli_missing_sentinel_backend(
         input_path=Path("options.yaml"),
         output_path=Path("models.py"),
         input_file_type="openapi",
-        extra_args=[*OPTIONS, *CLIENT, "--output-model-type", backend, "--use-missing-sentinel"],
+        extra_args=[*OPTIONS, *CLIENT, "--output-model-type", *backend, "--use-missing-sentinel"],
         copy_files=_inputs(tmp_path),
         expected_exit=Exit.ERROR,
         capsys=capsys,
@@ -778,11 +784,14 @@ def test_client_cli_missing_sentinel_backend(
 def test_client_cli_dataclass_missing_sentinel(
     arguments: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Refuse a client of Pydantic dataclasses without --use-missing-sentinel, which tells unset members from None.
+    """Refuse a client of Pydantic dataclasses whose pyproject.toml turns --use-missing-sentinel off.
 
-    The message names the target pydantic version that the sentinel needs as well.
+    The sentinel tells unset members from None; the message names the target pydantic version it needs as well.
     """
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.datamodel-codegen]\nuse-missing-sentinel = false\n", encoding="utf-8"
+    )
     run_main_and_assert(
         input_path=Path("options.yaml"),
         output_path=Path("models.py"),
@@ -810,28 +819,37 @@ _MSGSPEC_NULLABLE_ENUM_ALIAS = (
 
 
 @pytest.mark.parametrize(
-    ("arguments", "missing"),
+    ("keys", "missing"),
     [
-        ([], f"{_MSGSPEC_TAGGED_UNIONS}; {_MSGSPEC_NULLABLE_ENUM_ALIAS}"),
-        (["--use-msgspec-nullable-enum-alias"], _MSGSPEC_TAGGED_UNIONS),
-        (["--use-msgspec-tagged-unions"], _MSGSPEC_NULLABLE_ENUM_ALIAS),
+        (
+            ["use-msgspec-tagged-unions", "use-msgspec-nullable-enum-alias"],
+            f"{_MSGSPEC_TAGGED_UNIONS}; {_MSGSPEC_NULLABLE_ENUM_ALIAS}",
+        ),
+        (["use-msgspec-tagged-unions"], _MSGSPEC_TAGGED_UNIONS),
+        (["use-msgspec-nullable-enum-alias"], _MSGSPEC_NULLABLE_ENUM_ALIAS),
     ],
     ids=["both", "tagged-unions", "nullable-enum-alias"],
 )
 def test_client_cli_msgspec_options(
-    arguments: list[str],
+    keys: list[str],
     missing: str,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Refuse a client of msgspec structs without the options that let msgspec decode them, naming every one missing."""
+    """Refuse a client of msgspec structs whose pyproject.toml turns off the options that let msgspec decode them.
+
+    The message names every one turned off; the target sets one left unset.
+    """
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.datamodel-codegen]\n" + "".join(f"{key} = false\n" for key in keys), encoding="utf-8"
+    )
     run_main_and_assert(
         input_path=Path("options.yaml"),
         output_path=Path("models.py"),
         input_file_type="openapi",
-        extra_args=[*OPTIONS, *CLIENT, "--output-model-type", "msgspec.Struct", *arguments],
+        extra_args=[*OPTIONS, *CLIENT, "--output-model-type", "msgspec.Struct"],
         copy_files=_inputs(tmp_path),
         expected_exit=Exit.ERROR,
         capsys=capsys,
@@ -1459,3 +1477,30 @@ def test_client_cli_options(
         copy_files=[(CLI / source, tmp_path / source), (CLI / "protocols.json", tmp_path / "protocols.json")],
     )
     assert_file_content(tmp_path / generated, f"cli/options/{expected}")
+
+
+@pytest.mark.parametrize(
+    ("backend", "given"),
+    [
+        ("msgspec.Struct", ["--use-msgspec-tagged-unions", "--use-msgspec-nullable-enum-alias"]),
+        ("pydantic_v2.dataclass", ["--use-missing-sentinel", "--target-pydantic-version", "2.14"]),
+    ],
+)
+def test_client_cli_implied_settings(
+    backend: str, given: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Set the backend settings the client needs and the run left unset, and say how to set them, after the run.
+
+    The models are those of a model-only run given the same settings.
+    """
+    monkeypatch.chdir(tmp_path)
+    _copy(tmp_path)
+    source = ["--input", "options.yaml", "--input-file-type", "openapi", *OPTIONS, "--output-model-type", backend]
+    run_main_with_args([*source, "--output", "models.py", *CLIENT])
+    notice = capsys.readouterr().err
+    run_main_with_args([*source, "--output", "given.py", *given])
+    same = (tmp_path / "given.py").read_text(encoding="utf-8") == (tmp_path / "models.py").read_text(encoding="utf-8")
+    assert_output(
+        f"{notice}models equal those of a model-only run given {' '.join(given)}: {same}\n",
+        EXPECTED / "cli" / "implied" / f"{backend}.txt",
+    )

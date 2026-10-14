@@ -532,6 +532,12 @@
           "title": "Dependencies",
           "type": "array"
         },
+        "implied": {
+          "additionalProperties": true,
+          "description": "The settings the target needs that the run left unset and the values it gave them, keyed as pyproject.toml keys them; absent when it implied none.",
+          "title": "Implied",
+          "type": "object"
+        },
         "readme": {
           "description": "The README of the package, which describes the next steps.",
           "title": "Readme",
@@ -872,6 +878,12 @@
           },
           "title": "Dependencies",
           "type": "array"
+        },
+        "implied": {
+          "additionalProperties": true,
+          "description": "The settings the target needs that the run left unset and the values it gave them, keyed as pyproject.toml keys them; absent when it implied none.",
+          "title": "Implied",
+          "type": "object"
         }
       },
       "required": [

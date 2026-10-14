@@ -244,7 +244,8 @@ datamodel-codegen \
 <!-- END AUTO-GENERATED DOC EXAMPLE: index.server-client.commands -->
 
 `--openapi-scopes` must include `api`, and both need Python 3.11 or later, to run and as the target version (the preset
-sets 3.12). Each run ends by printing the runtime dependencies of its package to stderr:
+sets 3.12); left unset, the run sets them and says how. Each run ends by printing the runtime dependencies of its
+package to stderr:
 
 <!-- BEGIN AUTO-GENERATED DOC EXAMPLE: index.server-client.notice -->
 <!-- fmt: off -->
