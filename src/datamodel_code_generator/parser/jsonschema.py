@@ -2955,11 +2955,13 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
             if class_name_suffix and base_name_without_index.endswith(class_name_suffix)
             else f"{base_reference.name}{suffix}"
         )
+        yields = {"yields": True} if self.model_resolver.is_yielding(base_reference) else {}
         unique_name = self.model_resolver.get_class_name(
             variant_name,
             unique=True,
             skip_affix=True,
             preserve_name=True,
+            **yields,
         ).name
         reference = self.model_resolver.add(
             get_special_path(f"read-write-{suffix.lower()}", base_reference.path.split("/")),
@@ -2967,6 +2969,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
             class_name=False,
             unique=False,
             loaded=loaded,
+            **yields,
         )
         source_reference_path = _get_unique_rw_model_variant_source_path(
             source_variant_ref,
