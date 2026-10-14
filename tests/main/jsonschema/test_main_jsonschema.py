@@ -5414,25 +5414,40 @@ def test_main_string_and_array_constraints_on_other_types(
 
 
 _TYPING_ALIAS_TYPE_OVERRIDES = json.dumps({"ConstraintsOnTypingAliases.overridden": "typing.List"})
+_TYPING_CONSTRAINT_OUTPUTS = (
+    ("field_constraints.py", ["--field-constraints"]),
+    ("use_annotated.py", ["--use-annotated"]),
+    ("pydantic_v2_dataclass.py", ["--output-model-type", "pydantic_v2.dataclass", "--field-constraints"]),
+    ("msgspec.py", ["--output-model-type", "msgspec.Struct"]),
+)
 
 
 @pytest.mark.parametrize(
-    ("expected_file", "extra_args"),
+    ("name", "expected_file", "extra_args"),
     [
-        ("field_constraints.py", ["--field-constraints"]),
-        ("use_annotated.py", ["--use-annotated"]),
-        ("pydantic_v2_dataclass.py", ["--output-model-type", "pydantic_v2.dataclass", "--field-constraints"]),
-        ("msgspec.py", ["--output-model-type", "msgspec.Struct"]),
-        ("type_overrides.py", ["--field-constraints", "--type-overrides", _TYPING_ALIAS_TYPE_OVERRIDES]),
+        *(("constraints_on_typing_aliases", *output) for output in _TYPING_CONSTRAINT_OUTPUTS),
         (
+            "constraints_on_typing_aliases",
+            "type_overrides.py",
+            ["--field-constraints", "--type-overrides", _TYPING_ALIAS_TYPE_OVERRIDES],
+        ),
+        (
+            "constraints_on_typing_aliases",
             "type_overrides_msgspec.py",
             ["--output-model-type", "msgspec.Struct", "--type-overrides", _TYPING_ALIAS_TYPE_OVERRIDES],
         ),
+        *(("constraints_on_typing_literals", *output) for output in _TYPING_CONSTRAINT_OUTPUTS),
+        *(("constraints_on_typing_literal_values", *output) for output in _TYPING_CONSTRAINT_OUTPUTS[:3]),
     ],
 )
-def test_main_constraints_on_typing_aliases(output_file: Path, expected_file: str, extra_args: list[str]) -> None:
-    """Test a typing alias, an abstract collection and Annotated take the keywords of their type, at runtime too."""
-    name = "constraints_on_typing_aliases"
+def test_main_constraints_on_typing_aliases(
+    output_file: Path, name: str, expected_file: str, extra_args: list[str]
+) -> None:
+    """Test a typing alias, an abstract collection and Annotated take the keywords of their type, at runtime too.
+
+    A ``Literal`` takes the keywords every value other than ``None`` takes, and a ``bool`` value takes none; msgspec
+    does not run the float, bytes and bool values, which its ``Literal`` does not support.
+    """
     run_main_and_assert(
         input_path=JSON_SCHEMA_DATA_PATH / f"{name}.json",
         output_path=output_file,
@@ -5443,7 +5458,7 @@ def test_main_constraints_on_typing_aliases(output_file: Path, expected_file: st
         force_exec_validation=True,
     )
     payloads = json.loads((DATA_PATH / f"payloads/{name}.json").read_text())
-    with _generated_model(output_file, name, "ConstraintsOnTypingAliases") as model:
+    with _generated_model(output_file, name, "".join(map(str.title, name.split("_")))) as model:
         validate = partial(msgspec.json.decode, type=model)
         error_type: type[Exception] = msgspec.ValidationError
         if "msgspec.Struct" not in extra_args:
@@ -7853,6 +7868,30 @@ def test_jsonschema_use_title_as_name_nested_titles(output_file: Path) -> None:
             "--use-union-operator",
             "--use-standard-collections",
             "--skip-root-model",
+        ],
+    )
+
+
+@pytest.mark.parametrize("formatters", [["builtin"], ["black", "isort"]])
+def test_main_union_annotation_at_line_length(output_file: Path, formatters: list[str]) -> None:
+    """Test the built-in formatter splits a union annotation like black only when `<annotation> = (` exceeds the line.
+
+    A line of exactly the line length keeps the right-hand side split.
+    """
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "union_annotation_at_line_length.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="union_annotation_at_line_length.py",
+        extra_args=[
+            "--output-model-type",
+            "msgspec.Struct",
+            "--target-python-version",
+            "3.11",
+            "--disable-timestamp",
+            "--formatters",
+            *formatters,
         ],
     )
 
