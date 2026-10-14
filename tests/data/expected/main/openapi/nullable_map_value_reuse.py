@@ -6,18 +6,23 @@ from __future__ import annotations
 from pydantic import BaseModel, RootModel
 
 
-class Value(BaseModel):
-    id: int | None = None
-
-
-class Item(RootModel[dict[str, Value] | None]):
-    root: dict[str, Value] | None
+class Item(RootModel[dict[str, "Value"] | None]):
+    root: dict[str, "Value"] | None
 
 
 class ItemTwo(Item):
     pass
 
 
+class Value(BaseModel):
+    id: int | None = None
+
+
+class Other(Value):
+    pass
+
+
 class Holder(BaseModel):
     items: Item | None = None
     others: ItemTwo | None = None
+    v: Other | None = None

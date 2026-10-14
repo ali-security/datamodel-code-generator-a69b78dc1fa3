@@ -11338,6 +11338,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
             reference = self.model_resolver.add(
                 path, self._apply_title_as_name(name, obj), loaded=True, class_name=True
             )
+            self.typed_nullable_map_reference_ids.add(id(reference))
             data_type = self._parse_nullable_map(name, obj, path, value_schema)
         elif obj.type:
             if preserve_constraints and effective_use_annotated:

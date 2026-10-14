@@ -12,3 +12,11 @@ class Holder(BaseModel):
 
 class Value(BaseModel):
     id: int | None = None
+
+
+class Left(BaseModel):
+    x: str | None = None
+
+
+class Right(Left):
+    pass

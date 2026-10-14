@@ -2815,6 +2815,9 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         self.reuse_model: bool = config.reuse_model
         self._typed_map_value_reference_ids: set[int] = set()
         self.typed_nullable_maps = False
+        self.typed_nullable_map_reference_ids: set[int] = set()
+        self.typed_map_values_may_move_models = False
+        self.model_placement: dict[ModulePath, frozenset[str]] = {}
         self.reuse_scope: ReuseScope | None = config.reuse_scope
         self.shared_module_name: str = config.shared_module_name
         self.encoding: str = self._source_context.encoding
@@ -3419,7 +3422,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                         (canonical, dup)
                         for group in content_key_to_models.values()
                         if len(group) > 1
-                        for canonical, dup in _iter_matching_duplicates(group, shapes)
+                        for canonical, dup in _iter_matching_duplicates(self._typed_map_values_last(group), shapes)
                         if dup not in models_to_remove
                     ]
                 ):
@@ -3438,6 +3441,12 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         if models_to_remove:
             models[:] = [m for m in models if m not in models_to_remove]
 
+    def _typed_map_values_last(self, models: list[DataModel]) -> list[DataModel]:
+        """Order models of typed map values after the others, so the others stay canonical and keep their names."""
+        if typed_map_values := self._typed_map_value_reference_ids:
+            return sorted(models, key=lambda model: id(model.reference) in typed_map_values)
+        return models
+
     def __replace_duplicate_name_in_module(self, models: list[DataModel]) -> None:
         """Make class names unique within a module.
 
@@ -3445,8 +3454,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         module are dropped whenever a model is renamed. Models of typed map values come last, so the other
         models keep the names they had before values were typed.
         """
-        if typed_map_values := self._typed_map_value_reference_ids:
-            models = sorted(models, key=lambda model: id(model.reference) in typed_map_values)
+        models = self._typed_map_values_last(models)
         scoped_model_resolver = ModelResolver(
             exclude_names={i.alias or i.import_ for m in models for i in m.imports},
             duplicate_name_suffix="Model",
@@ -4092,8 +4100,31 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         }
         return [
             (model_modules[model], model, model_modules[canonical], canonical)
-            for canonical, model in _iter_matching_duplicates(model_modules, {}, lambda model: model.get_dedup_key())
+            for canonical, model in _iter_matching_duplicates(
+                self._typed_map_values_last(list(model_modules)), {}, lambda model: model.get_dedup_key()
+            )
         ]
+
+    def __replace_typed_map_value_duplicates(
+        self,
+        module_models: list[tuple[tuple[str, ...], list[DataModel]]],
+        duplicates: list[tuple[tuple[str, ...], DataModel, tuple[str, ...], DataModel]],
+    ) -> list[tuple[tuple[str, ...], DataModel, tuple[str, ...], DataModel]]:
+        """Replace typed map values by the other models they duplicate, leaving the rest to the shared module.
+
+        Those other models stay where they are, as they did before map values were typed.
+        """
+        typed_map_values = self._typed_map_value_reference_ids
+        module_lists = dict(module_models)
+        remaining = []
+        for duplicate in duplicates:
+            duplicate_module, duplicate_model, _, canonical = duplicate
+            if id(duplicate_model.reference) in typed_map_values and id(canonical.reference) not in typed_map_values:
+                self.generation_store.redirect_reference_users(duplicate_model.reference, canonical.reference)
+                module_lists[duplicate_module].remove(duplicate_model)
+            else:
+                remaining.append(duplicate)
+        return remaining
 
     def __validate_shared_module_name(
         self,
@@ -4203,6 +4234,8 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             return None
 
         duplicates = self.__find_duplicate_models_across_modules(module_models)
+        if self._typed_map_value_reference_ids:
+            duplicates = self.__replace_typed_map_value_duplicates(module_models, duplicates)
         if not duplicates:
             return None
 
@@ -6605,7 +6638,7 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             defect_models.update(model for ctx in contexts for model in ctx.models)
         self.stdout_result_usable = not defect_models
         if self.forced_invalid_dotted_stdout_repair_modules:
-            self.generated_model_inventory = tuple(sorted(model.path for ctx in contexts for model in ctx.models))
+            self.generated_model_inventory = self._model_inventory([model for ctx in contexts for model in ctx.models])
             self.source_data_fingerprint = self._get_source_data_fingerprint()
             return
         if not defect_models or config.module_split_mode is not None:
@@ -6629,8 +6662,13 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
         # The retry flattens every stdout model. Pass every non-canonical inferred
         # module so canonical modules reserve their existing names before any of them.
         self.invalid_dotted_stdout_repair_modules = tuple(sorted(invalid_modules))
-        self.generated_model_inventory = tuple(sorted(model.path for model in live_models))
+        self.generated_model_inventory = self._model_inventory(live_models)
         self.source_data_fingerprint = source_fingerprint
+
+    def _model_inventory(self, models: list[DataModel]) -> tuple[str, ...]:
+        """Return the paths of the models other than typed map values, which a retry with untyped values omits."""
+        typed_map_values = self._typed_map_value_reference_ids
+        return tuple(sorted(model.path for model in models if id(model.reference) not in typed_map_values))
 
     def _flatten_invalid_modules(
         self,
@@ -7715,6 +7753,8 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             model_path_to_module_name=model_path_to_module_name,
         )
         self._finalize_modules(contexts, unused_models, model_to_module_models, module_to_import)
+        if self.typed_nullable_maps or self.run_context.untyped_nullable_maps:
+            self.__record_model_placement(contexts, bool(internal_modules))
         self._check_model_inheritance(contexts)
         self.__warn_about_decimal_defaults()
         if self.use_default_factory_for_optional_nested_models:
@@ -7734,6 +7774,40 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             config=config,
             forwarder_map=forwarder_map,
             require_update_action_models=require_update_action_models,
+        )
+
+    def __record_model_placement(
+        self,
+        contexts: list[ModuleContext],
+        has_internal_modules: bool,  # noqa: FBT001
+    ) -> None:
+        """Record where models other than typed map values are written, and whether the typed values could move them.
+
+        Typed map values move other models only through a module of their own, an internal module of an import
+        cycle, or a module shared by reused models, and keep a model only as a nullable map they make recursive,
+        which ``--collapse-root-models`` would otherwise collapse.
+        """
+        typed_map_values = self._typed_map_value_reference_ids
+        placement = {ctx.module: ctx.models for ctx in contexts}
+        self.model_placement = {
+            module: frozenset(model.class_name for model in models if id(model.reference) not in typed_map_values)
+            for module, models in placement.items()
+        }
+        self.typed_map_values_may_move_models = (
+            has_internal_modules
+            or (self.reuse_model and self.reuse_scope == ReuseScope.Tree)
+            or any(
+                models and all(id(model.reference) in typed_map_values for model in models)
+                for models in placement.values()
+            )
+            or (
+                self.collapse_root_models
+                and any(
+                    id(model.reference) in self.typed_nullable_map_reference_ids
+                    for models in placement.values()
+                    for model in models
+                )
+            )
         )
 
     def __render_modules(  # noqa: PLR0913

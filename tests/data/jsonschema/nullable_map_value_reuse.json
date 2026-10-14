@@ -4,7 +4,10 @@
   "type": "object",
   "properties": {
     "items": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": {
         "type": "object",
         "properties": {
@@ -21,6 +24,22 @@
       "properties": {
         "id": {
           "type": "integer"
+        }
+      }
+    },
+    "Left": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "string"
+        }
+      }
+    },
+    "Right": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "string"
         }
       }
     }
