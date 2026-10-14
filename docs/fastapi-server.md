@@ -968,11 +968,17 @@ bytes, and `--check` reports a module that differs.
 Server generation needs some model settings. A setting you leave unset, on the command line, in
 `[tool.datamodel-codegen]` or a job's table, in the arguments of `generate()`, and in the preset, takes the value
 the server needs; a value you set yourself that the server cannot use stops the run with `Error:` and exit code 2,
-or an `Error` from `generate()`. The models are those of a model-only run given the same settings. After a command
-line run that set any, stderr shows how to set them yourself, before the `uv add` notice: the command as you ran it
-with the options appended, or, for settings from `pyproject.toml`, the lines to add to the table that held them;
-`--output-format json` names them in `target.implied`, keyed as `pyproject.toml` keys them. `generate()` prints
-nothing. Presets stay as they are, without these settings.
+or an `Error` from `generate()`. The model options that depend on these settings, such as `--use-specialized-enum`
+on the target Python version, see the values the server sets. The models are those of a model-only run given the same
+settings. After a command line run that set any, stderr shows how to set them yourself, before the `uv add` notice:
+the command as you ran it with the options appended, when the command line selected the target or no
+`pyproject.toml` was read (noting an input read from stdin), or else the lines to add to the table that held the
+settings: the job's table for a job, the profile's for `--profile`, quoted as TOML needs, in the `pyproject.toml`
+named by its path from the working directory. `--watch` shows them once, after its first generation.
+`--output-format json` names them in `target.implied`, an object whose keys are those of `pyproject.toml`:
+`openapi-scopes`, `target-python-version`, `use-missing-sentinel`, `target-pydantic-version`,
+`use-msgspec-tagged-unions`, and `use-msgspec-nullable-enum-alias`, each present only when the target set it.
+`generate()` prints nothing. Presets stay as they are, without these settings.
 
 - Python 3.11 or later, both to run `datamodel-codegen` and as the target Python version: an unset
   `--target-python-version` is `3.11`. An older one, set yourself or by a preset for Python 3.10, is refused; the
@@ -988,7 +994,8 @@ nothing. Presets stay as they are, without these settings.
   so that the models import MISSING from pydantic`.
 - `pydantic_v2.dataclass` models need `--use-missing-sentinel`, and with it `--target-pydantic-version 2.14`, since a
   dataclass field cannot tell an unset member from one set to `None`: unset, the sentinel is on and the target is
-  `2.14`. With `use-missing-sentinel = false` in `pyproject.toml`, generation stops with
+  `2.14`; a target pydantic version older than `2.14` that you set is refused with a message that says the server
+set the sentinel. With `use-missing-sentinel = false` in `pyproject.toml`, generation stops with
   `Error: The fastapi target needs --use-missing-sentinel with --target-pydantic-version 2.14 for
   'pydantic_v2.dataclass' models, whose fields cannot tell an unset member from None`. With both, an optional field
   without a default holds `MISSING`: a member a request leaves out reaches the method as `MISSING`, and a field the

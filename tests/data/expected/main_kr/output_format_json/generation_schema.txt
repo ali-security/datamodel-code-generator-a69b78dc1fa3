@@ -64,10 +64,9 @@
           "type": "array"
         },
         "implied": {
-          "additionalProperties": true,
+          "$ref": "#/$defs/ImpliedPayload",
           "description": "The settings the target needs that the run left unset and the values it gave them, keyed as pyproject.toml keys them; absent when it implied none.",
-          "title": "Implied",
-          "type": "object"
+          "title": "Implied"
         },
         "readme": {
           "description": "The README of the package, which describes the next steps.",
@@ -129,6 +128,47 @@
         "created"
       ],
       "title": "ImplementationPayload",
+      "type": "object"
+    },
+    "ImpliedPayload": {
+      "additionalProperties": false,
+      "description": "The model settings a server or client target set because the run left them unset, keyed as pyproject.toml keys.\n\nEach key is absent unless the target set it.",
+      "properties": {
+        "openapi-scopes": {
+          "description": "The scopes, with api added to the default ones.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Openapi-Scopes",
+          "type": "array"
+        },
+        "target-python-version": {
+          "description": "The target Python version, 3.11.",
+          "title": "Target-Python-Version",
+          "type": "string"
+        },
+        "use-missing-sentinel": {
+          "description": "The MISSING sentinel, on for pydantic_v2.dataclass models.",
+          "title": "Use-Missing-Sentinel",
+          "type": "boolean"
+        },
+        "target-pydantic-version": {
+          "description": "The target pydantic version, 2.14, for models with the MISSING sentinel.",
+          "title": "Target-Pydantic-Version",
+          "type": "string"
+        },
+        "use-msgspec-tagged-unions": {
+          "description": "Tagged unions, on for msgspec.Struct models.",
+          "title": "Use-Msgspec-Tagged-Unions",
+          "type": "boolean"
+        },
+        "use-msgspec-nullable-enum-alias": {
+          "description": "Nullable enum aliases, on for msgspec.Struct models.",
+          "title": "Use-Msgspec-Nullable-Enum-Alias",
+          "type": "boolean"
+        }
+      },
+      "title": "ImpliedPayload",
       "type": "object"
     }
   },

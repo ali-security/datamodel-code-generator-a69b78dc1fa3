@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 from functools import partial
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from datamodel_code_generator._api_generation import PlannedTarget
     from datamodel_code_generator._api_types import GeneratedArtifact, GeneratedProject, NextSteps
     from datamodel_code_generator._publication import StagedFile
-    from datamodel_code_generator._structured_output import CheckDifferencePayload, TargetPayload
+    from datamodel_code_generator._structured_output import CheckDifferencePayload, ImpliedPayload, TargetPayload
     from datamodel_code_generator._target_config import TargetConfig
 
 _OK: Final = 0
@@ -36,6 +37,8 @@ def run_target(  # noqa: PLR0913, PLR0917
     batch: list[tuple[str, PlannedTarget, str]] | None = None,
     lock: Any = None,
     job: str = "",
+    implied: dict[str, Any] | None = None,
+    announced: dict[str, Any] | None = None,
 ) -> int:
     """Generate or check the selected target from the finalized CLI config, reporting errors like model runs.
 
@@ -44,18 +47,13 @@ def run_target(  # noqa: PLR0913, PLR0917
     models record into the batch's remote `lock`. A single run publishes its target as a batch of one, so a failed
     publication is reported as for the model runs that publish through the same journal.
 
-    A setting the target needs that no option, key, or preset set takes the value the target needs. After a run that
-    succeeds, stderr shows how to set it: the command as run with the options appended, or the lines of the
-    `pyproject.toml` table that held the settings; the JSON payloads name it under `target.implied`.
+    The config already holds the settings the target `implied`, which no option, key, or preset set; the JSON payloads
+    name them under `target.implied`. After a run that succeeds, stderr shows how to set the `announced` ones: the
+    command as run with their options appended, or the lines of the `pyproject.toml` table that held the settings.
     """
-    from datamodel_code_generator._api_generation import (  # noqa: PLC0415
-        implied_settings,
-        model_requirement,
-        python_problem,
-    )
+    from datamodel_code_generator._api_generation import model_requirement, python_problem  # noqa: PLC0415
 
-    if implied := implied_settings(config, config.model_fields_set):
-        config = config.model_copy(update=implied)
+    implied = implied or {}
     if config.preset is not None and (problem := python_problem(config, _kind(config))) is not None:
         print(f"Error: --target-python-version: {problem}", file=sys.stderr)  # noqa: T201
         return _ERROR
@@ -63,7 +61,7 @@ def run_target(  # noqa: PLR0913, PLR0917
         print(f"Error: {requirement}", file=sys.stderr)  # noqa: T201
         return _ERROR
     try:
-        return _run(args, namespace, config, pyproject_path, batch, lock, job, implied)
+        return _run(args, namespace, config, pyproject_path, batch, lock, job, implied, announced or {})
     except Exception as error:  # noqa: BLE001
         from datamodel_code_generator._target_selection import keyed  # noqa: PLC0415
 
@@ -88,12 +86,14 @@ def _print_notice(notice: str | None) -> None:
         print(notice, file=sys.stderr)  # noqa: T201
 
 
-def _implied_notice(
-    implied: dict[str, Any], args: Sequence[str], selector: str, pyproject: Path | None, job: str
+def _implied_notice(  # noqa: PLR0913, PLR0917
+    implied: dict[str, Any], args: Sequence[str], config: Any, namespace: Namespace, pyproject: Path | None, job: str
 ) -> str | None:
     """Return how to set the implied settings: the command with their options, or the lines of the table to add.
 
-    A run that implied nothing has no notice.
+    A job adds them to its table, and a run whose target the command line selected adds them to its command. Any
+    other run that read `pyproject.toml` adds them to the table it read, its profile's when it selected one. A run
+    that implied nothing has no notice.
     """
     if not implied:
         return None
@@ -101,17 +101,29 @@ def _implied_notice(
     import shlex  # noqa: PLC0415
 
     options = dict(starmap(_implied_option, implied.items()))
-    lead = f"{selector} set the options it needs that you left unset; to set them yourself"
-    if job or pyproject is not None:
-        table = f"tool.datamodel-codegen.jobs.{job}" if job else "tool.datamodel-codegen"
+    lead = f"{_selector(config)} set the options it needs that you left unset; to set them yourself"
+    selected = any(getattr(namespace, name, None) is not None for name in ("generate_server", "generate_client"))
+    if pyproject is not None and (job or not selected):
+        named = ("jobs", job) if job else ("profiles", profile) if (profile := namespace.profile) else ()
+        table = ".".join(("tool.datamodel-codegen", *(_toml_key(part) for part in named)))
         lines = (f"  {key} = {json.dumps(data)}" for key, data in options.items())
-        return "\n".join((f"{lead}, add to [{table}] of pyproject.toml:", *lines))
+        where = os.path.relpath(pyproject, Path.cwd())
+        return "\n".join((f"{lead}, add to [{table}] of {Path(where).as_posix()}:", *lines))
     flags = [
         token
         for key, data in options.items()
         for token in (f"--{key}", *(data if isinstance(data, list) else () if data is True else (data,)))
     ]
-    return f"{lead}, run:\n  {shlex.join(('datamodel-codegen', *args, *flags))}"
+    stdin = "" if config.input or config.url else " (with the same input on stdin)"
+    return f"{lead}, run{stdin}:\n  {shlex.join(('datamodel-codegen', *args, *flags))}"
+
+
+def _toml_key(key: str) -> str:
+    """Return a key of a TOML table header: bare when TOML allows it, or quoted."""
+    import json  # noqa: PLC0415
+    import re  # noqa: PLC0415
+
+    return key if re.fullmatch(r"[A-Za-z0-9_-]+", key) else json.dumps(key)
 
 
 def _kind(config: Any) -> str:
@@ -133,6 +145,7 @@ def _run(  # noqa: PLR0913, PLR0917
     lock: Any,
     job: str,
     implied: dict[str, Any],
+    announced: dict[str, Any],
 ) -> int:
     from datamodel_code_generator.__main__ import (  # noqa: PLC0415
         _publish_or_error,  # pyright: ignore[reportPrivateUsage]
@@ -142,7 +155,12 @@ def _run(  # noqa: PLR0913, PLR0917
         _target_settings,  # pyright: ignore[reportPrivateUsage, reportUnknownVariableType]
         _write_comparison_output,  # pyright: ignore[reportPrivateUsage]
     )
-    from datamodel_code_generator._api_generation import plan_target, prepare_target, render_target  # noqa: PLC0415
+    from datamodel_code_generator._api_generation import (  # noqa: PLC0415
+        implied_conflict,
+        plan_target,
+        prepare_target,
+        render_target,
+    )
     from datamodel_code_generator._target_selection import target_of  # noqa: PLC0415
 
     lockfile = _target_lockfile(config, pyproject_path)
@@ -153,7 +171,8 @@ def _run(  # noqa: PLR0913, PLR0917
     if (source := config.url or config.input) is None:
         prepare_target("", effective, generator)
         source = sys.stdin.read()
-    notice = _implied_notice(implied, args, _selector(config), pyproject_path, job)
+    implied_conflict(config, implied, generator)
+    notice = _implied_notice(announced, args, config, namespace, pyproject_path, job)
     if config.check:
         project = render_target(source, model_config=effective, config=target, generator=generator)
         comparison = _compare_target(project, config.output, target.output, config.encoding)
@@ -232,8 +251,13 @@ def _target_payload(target: TargetConfig, project: GeneratedProject, implied: di
     )
 
 
-def _implied_payload(implied: dict[str, Any]) -> dict[str, Any] | None:
-    return dict(starmap(_implied_option, implied.items())) or None
+def _implied_payload(implied: dict[str, Any]) -> ImpliedPayload | None:
+    """Return the settings the target implied as the payload records them, or None when it implied none."""
+    if not implied:
+        return None
+    from datamodel_code_generator._structured_output import ImpliedPayload  # noqa: PLC0415
+
+    return ImpliedPayload(**{name: _implied_option(name, value)[1] for name, value in implied.items()})
 
 
 def _target_json(

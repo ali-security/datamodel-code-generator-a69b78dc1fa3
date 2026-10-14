@@ -244,6 +244,13 @@ def test_generate_server_options_without_selector(tmp_path: Path, monkeypatch: p
             ),
         ),
         (
+            {**CLIENT, "output_model_type": "pydantic_v2.dataclass", "target_pydantic_version": "2.11"},
+            (
+                "The client target needs --target-pydantic-version 2.14 for --use-missing-sentinel, which it sets for "
+                "'pydantic_v2.dataclass' models, so that the models import MISSING from pydantic"
+            ),
+        ),
+        (
             {
                 **CLIENT,
                 "output_model_type": "msgspec.Struct",
@@ -302,6 +309,7 @@ def test_generate_server_options_without_selector(tmp_path: Path, monkeypatch: p
         "client-dataclass-sentinel",
         "sentinel-target-2.11",
         "client-dataclass-sentinel-target",
+        "client-dataclass-implied-sentinel-target",
         "client-msgspec-options",
         "client-msgspec-nullable-enum-alias",
         "json-value",

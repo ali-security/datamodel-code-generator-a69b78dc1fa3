@@ -2482,8 +2482,13 @@ IMPLIED_TABLE = (
         ),
         ([], f"[tool.datamodel-codegen]\n{IMPLIED_TABLE}", [*SCOPES, *PYTHON]),
         (["--all-jobs"], f"[tool.datamodel-codegen.jobs.api]\n{IMPLIED_TABLE}", [*SCOPES, *PYTHON]),
+        (
+            ["--all-jobs", "--output-format", "json"],
+            f"[tool.datamodel-codegen.jobs.api]\n{IMPLIED_TABLE}",
+            [*SCOPES, *PYTHON],
+        ),
     ],
-    ids=["command", "json", "sentinel", "dataclass", "pyproject", "job"],
+    ids=["command", "json", "sentinel", "dataclass", "pyproject", "job", "job-json"],
 )
 def test_fastapi_cli_implied_settings(
     arguments: list[str],
@@ -2507,7 +2512,9 @@ def test_fastapi_cli_implied_settings(
     captured = capsys.readouterr()
     lines.append(captured.err.rstrip())
     if "json" in arguments:
-        lines.append(f"target.implied {json.dumps(json.loads(captured.out)['target']['implied'])}")
+        payload = json.loads(captured.out)
+        result = payload["jobs"][0]["result"] if "--all-jobs" in arguments else payload
+        lines.append(f"target.implied {json.dumps(result['target']['implied'])}")
     backend = arguments[arguments.index("--output-model-type") + 1] if "--output-model-type" in arguments else None
     model_only = [
         *("--input", "pets.yaml", "--input-file-type", "openapi", "--output", "given.py"),
@@ -2522,3 +2529,104 @@ def test_fastapi_cli_implied_settings(
     lines.append(f"models equal those of a model-only run given {' '.join(given)}: {same}")
     capsys.readouterr()
     assert_output("\n".join(lines) + "\n", EXPECTED / "cli" / "implied" / f"{request.node.callspec.id}.txt")
+
+
+IMPLIED_TARGET = (
+    'generate-server = "fastapi"\nserver-output = "server"\nserver-package = "server"\n'
+    'server-model-package = "models"\n'
+)
+IMPLIED_MODELS = (
+    'input = "pets.yaml"\ninput-file-type = "openapi"\noutput = "models.py"\n'
+    'output-model-type = "pydantic_v2.BaseModel"\nformatters = ["builtin"]\ndisable-timestamp = true\n'
+)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "pyproject", "work"),
+    [
+        (
+            ["--profile", "srv"],
+            f"[tool.datamodel-codegen]\n{IMPLIED_MODELS}[tool.datamodel-codegen.profiles.srv]\n{IMPLIED_TARGET}",
+            "",
+        ),
+        (["--all-jobs"], f'[tool.datamodel-codegen.jobs."v1.api"]\n{IMPLIED_MODELS}{IMPLIED_TARGET}', ""),
+        (["--all-jobs"], f'[tool.datamodel-codegen.jobs."my server"]\n{IMPLIED_MODELS}{IMPLIED_TARGET}', ""),
+        (SERVER, f"[tool.datamodel-codegen]\n{IMPLIED_MODELS}", ""),
+        ([], f"[tool.datamodel-codegen]\n{IMPLIED_MODELS}{IMPLIED_TARGET}", "work"),
+        ([*IMPLIED_SERVER, *IMPLIED_MODEL_OPTIONS, "--use-specialized-enum"], None, ""),
+        ([], f"[tool.datamodel-codegen]\n{IMPLIED_MODELS}use-specialized-enum = true\n{IMPLIED_TARGET}", ""),
+    ],
+    ids=[
+        "profile",
+        "dotted-job",
+        "spaced-job",
+        "command-target",
+        "parent-pyproject",
+        "specialized-enum",
+        "specialized-enum-pyproject",
+    ],
+)
+def test_fastapi_cli_implied_notice(
+    arguments: list[str],
+    pyproject: str | None,
+    work: str,
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Name the implied settings where they belong: the table in use, quoted as TOML needs, or the command.
+
+    A command that selects the target is repeated even when pyproject.toml holds other settings, a pyproject.toml
+    outside the working directory is named by its path. The model checks that depend
+    on an implied setting, such as --use-specialized-enum on the target Python version, see the implied value.
+    """
+    _copy(tmp_path)
+    if pyproject is not None:
+        (tmp_path / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    (cwd := tmp_path / work).mkdir(exist_ok=True)
+    monkeypatch.chdir(cwd)
+    run_main_with_args(arguments, use_builtin_default_formatter=False)
+    captured = capsys.readouterr().err
+    implied = captured.partition("Add the runtime dependencies")[0]
+    assert_output(implied, EXPECTED / "cli" / "implied" / f"notice-{request.node.callspec.id}.txt")
+
+
+def test_fastapi_cli_implied_notice_stdin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Note that the command that sets the implied settings reads the same input on stdin."""
+    monkeypatch.chdir(tmp_path)
+    run_main_and_assert(
+        stdin_path=SOURCE / "pets.yaml",
+        monkeypatch=monkeypatch,
+        output_path=Path("models.py"),
+        input_file_type="openapi",
+        extra_args=[*FORMATTERS, "--disable-timestamp", *SERVER],
+    )
+    implied = capsys.readouterr().err.partition("Add the runtime dependencies")[0]
+    assert_output(implied, EXPECTED / "cli" / "implied" / "notice-stdin.txt")
+
+
+def test_fastapi_cli_implied_sentinel_target(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refuse a given target pydantic version older than the sentinel the target sets for dataclass models needs.
+
+    The message says that the target set the sentinel, which the command did not give.
+    """
+    monkeypatch.chdir(tmp_path)
+    run_main_and_assert(
+        input_path=Path("pets.yaml"),
+        output_path=Path("models.py"),
+        input_file_type="openapi",
+        extra_args=_server("--output-model-type", "pydantic_v2.dataclass", "--target-pydantic-version", "2.11"),
+        copy_files=_inputs(tmp_path),
+        expected_exit=Exit.ERROR,
+        capsys=capsys,
+        expected_stderr=(
+            "Error: The fastapi target needs --target-pydantic-version 2.14 for --use-missing-sentinel, which it sets "
+            "for 'pydantic_v2.dataclass' models, so that the models import MISSING from pydantic\n"
+        ),
+        output_should_not_exist=True,
+    )

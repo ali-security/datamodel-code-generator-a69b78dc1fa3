@@ -31,10 +31,10 @@ from datamodel_code_generator._target_documents import (
     document_identity,
     shown,
 )
+from datamodel_code_generator.base_config import implied_target_settings as implied_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
-    from collections.abc import Set as AbstractSet
 
     from datamodel_code_generator import _GenerationInput  # pyright: ignore[reportPrivateUsage]
     from datamodel_code_generator._api_types import ArtifactKind, TargetKind
@@ -202,7 +202,9 @@ def prepare_target(
         model_config = model_config.model_copy(update=implied)
     target = model_config.target_pydantic_version
     if (sentinel := model_config.use_missing_sentinel) and (
-        needed := pydantic_target_problem(model_config.output_model_type.value, target, sentinel=True)
+        needed := pydantic_target_problem(
+            model_config.output_model_type.value, target, sentinel=True, implied="use_missing_sentinel" in implied
+        )
     ) is not None:
         raise _target_pydantic_error(generator, needed)
     effective = _prepare_generate_facade_config(model_config)
@@ -261,37 +263,16 @@ def prepare_target(
     ))
 
 
-def implied_settings(config: Any, explicit: AbstractSet[str]) -> dict[str, Any]:
-    """Return the model settings a server or client target needs that a config leaves unset, with the values it implies.
+def implied_conflict(config: Any, implied: dict[str, Any], generator: TargetGenerator) -> None:
+    """Refuse a given target pydantic version older than the MISSING sentinel the target implied needs, saying so."""
+    from datamodel_code_generator._target_render import pydantic_target_problem  # noqa: PLC0415
+    from datamodel_code_generator.enums import DataModelType  # noqa: PLC0415
 
-    A setting is unset unless `explicit` names it, the fields an option, a configuration key, a `generate()` argument,
-    or a preset set. The target needs the `api` scope, Python 3.11, and its backend's settings: the MISSING sentinel
-    with pydantic 2.14 for Pydantic dataclasses, pydantic 2.14 for any sentinel, and the decodable unions and enums of
-    msgspec. A setting that was set keeps its value, which the target refuses when it cannot use it.
-    """
-    from datamodel_code_generator._target_render import PYDANTIC_BACKENDS, PYDANTIC_TARGET_MINIMUM  # noqa: PLC0415
-    from datamodel_code_generator.enums import DataModelType, OpenAPIScope, TargetPydanticVersion  # noqa: PLC0415
-    from datamodel_code_generator.format import PythonVersion  # noqa: PLC0415
-
-    implied: dict[str, Any] = {}
-    scopes = list(config.openapi_scopes or (OpenAPIScope.Schemas,))
-    if "openapi_scopes" not in explicit and OpenAPIScope.Api not in scopes:
-        implied["openapi_scopes"] = [*scopes, OpenAPIScope.Api]
-    if "target_python_version" not in explicit and config.target_python_version.version_key < _PYTHON_MINIMUM:
-        implied["target_python_version"] = PythonVersion(_PYTHON_MINIMUM_TEXT)
-    backend = DataModelType(config.output_model_type)
-    switches = {
-        DataModelType.PydanticV2Dataclass: ("use_missing_sentinel",),
-        DataModelType.MsgspecStruct: ("use_msgspec_tagged_unions", "use_msgspec_nullable_enum_alias"),
-    }.get(backend, ())
-    implied.update((name, True) for name in switches if name not in explicit and not getattr(config, name))
-    if (
-        implied.get("use_missing_sentinel", config.use_missing_sentinel)
-        and backend.value in PYDANTIC_BACKENDS
-        and "target_pydantic_version" not in explicit
+    backend = DataModelType(config.output_model_type).value
+    if "use_missing_sentinel" in implied and (
+        needed := pydantic_target_problem(backend, config.target_pydantic_version, sentinel=True, implied=True)
     ):
-        implied["target_pydantic_version"] = TargetPydanticVersion(PYDANTIC_TARGET_MINIMUM)
-    return implied
+        raise _target_pydantic_error(generator, needed)
 
 
 def _given_fields(config: GenerateConfig) -> set[str]:
