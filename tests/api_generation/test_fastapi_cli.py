@@ -1655,16 +1655,37 @@ def test_fastapi_cli_shared_models_jobs(
     run_main_with_args(["--all-jobs", "--check"], capsys=capsys, assert_no_stderr=True)
 
 
+@pytest.mark.parametrize(
+    ("pyproject", "stub", "expected"),
+    [
+        ("pyproject-shared-parent-jobs.toml", False, "shared-parent-jobs.txt"),
+        ("pyproject-shared-parent-jobs.toml", True, "shared-parent-jobs-stub.txt"),
+        ("pyproject-shared-parent-documents.toml", False, "shared-parent-documents.txt"),
+    ],
+    ids=["same-document", "existing-stub", "other-document"],
+)
 def test_fastapi_cli_shared_parent_jobs(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    pyproject: str,
+    stub: bool,
+    expected: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Refuse two server jobs in one parent package, which would import their implementations from one module."""
+    """Refuse two top-level server jobs in one parent package, which would import their implementations from one module.
+
+    Neither the document each job reads nor a module of the user's already in place changes that.
+    """
     monkeypatch.chdir(tmp_path)
-    _copy(tmp_path, "pyproject-shared-parent-jobs.toml")
+    _copy(tmp_path, pyproject)
+    shutil.copy2(CLI / "pets-baseline.yaml", tmp_path / "pets-baseline.yaml")
+    if stub:
+        (tmp_path / "services").mkdir()
+        (tmp_path / "services" / "pets.py").write_text("# Yours\n", encoding="utf-8")
     run_main_with_args(["--all-jobs"], expected_exit=Exit.ERROR)
     captured = capsys.readouterr()
     written = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*.py"))
-    assert_output(f"{captured.err}written: {written}\n", EXPECTED / "cli" / "shared-parent-jobs.txt")
+    assert_output(f"{captured.err}written: {written}\n", EXPECTED / "cli" / expected)
 
 
 @pytest.mark.parametrize(
@@ -1672,14 +1693,38 @@ def test_fastapi_cli_shared_parent_jobs(
     [
         ("user-module", ["--output", "models.py"]),
         ("models-module", ["--output", "services.py", "--server-model-package", "services"]),
+        ("suffixless-models-module", ["--output", "services", "--server-model-package", "services"]),
+        (
+            "models-package",
+            ["--input", "spec/modular.yaml", "--output", "services", "--server-model-package", "services"],
+        ),
+        (
+            "nested-models-module",
+            [
+                *("--output", "app/services.py", "--server-output", "app/server"),
+                *("--server-package", "app.server", "--server-model-package", "app.services"),
+            ],
+        ),
+        (
+            "nested-models-package",
+            [
+                *("--input", "spec/modular.yaml", "--output", "app/services", "--server-output", "app/server"),
+                *("--server-package", "app.server", "--server-model-package", "app.services"),
+            ],
+        ),
     ],
 )
 def test_fastapi_cli_services_module(
     name: str, arguments: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Refuse a module beside the server package with the name of the services package, before writing anything."""
+    """Refuse models or a module beside the server package named like its services package, before writing anything.
+
+    A models module or a module of the user's would shadow the package or be shadowed by it, and a models package would
+    be the package itself.
+    """
     monkeypatch.chdir(tmp_path)
     _copy(tmp_path)
+    shutil.copytree(DATA / "generation_platform" / "targets" / "spec", tmp_path / "spec")
     if name == "user-module":
         (tmp_path / "services.py").write_text("# A module of yours\n", encoding="utf-8")
     run_main_with_args(

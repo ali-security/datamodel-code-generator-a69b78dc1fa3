@@ -684,8 +684,8 @@ class _Planner:
                 for path in kept.values()
             ),
         )
-        self.check_collisions(artifacts)
         self.check_services(artifacts)
+        self.check_collisions(artifacts)
         return GeneratedProject(
             target=generator.kind,
             artifacts=artifacts,
@@ -694,17 +694,22 @@ class _Planner:
         )
 
     def check_services(self, artifacts: tuple[GeneratedArtifact, ...]) -> None:
-        """Refuse a module beside the server package with the name of the package that holds its implementations.
+        """Refuse models or a module beside the server package with the name of the package of its implementations.
 
-        Python would import one of them instead of the other: the models or a module of the user's, or the services.
+        Python would import one of a module and the package instead of the other, and a models package would be the
+        package itself.
         """
         if not (paths := [artifact.path for artifact in artifacts if artifact.kind == "implementation"]):
             return
-        module = paths[0].parent.with_suffix(".py")
-        if any(artifact.path == module for artifact in artifacts):
-            found, remedy = "The models module", "name the models otherwise"
+        module = (package := paths[0].parent).with_suffix(".py")
+        models = [artifact.path for artifact in artifacts if artifact.kind == "model"]
+        clash = "has the name of"
+        if found := next((path for path in models if path in {module, package}), None):
+            subject, remedy, module = "The models module", "name the models otherwise", found
+        elif any(package in path.parents for path in models):
+            subject, remedy, module, clash = "The models package", "name the models otherwise", package, "would be"
         elif (self.cwd / module).is_file():
-            found, remedy = "This module of yours", "rename the module"
+            subject, remedy = "This module of yours", "rename the module"
         else:
             return
         parent = self.config.package.rpartition(".")[0]
@@ -715,9 +720,8 @@ class _Planner:
                 severity="error",
                 stage="publication",
                 message=(
-                    f"{found} has the name of the {services} package, from which {self.config.package}.main "
-                    f"imports your implementations, and Python would import only one of them: {remedy}, or put the "
-                    "server package under a parent package of its own"
+                    f"{subject} {clash} the {services} package, from which {self.config.package}.main imports your "
+                    f"implementations: {remedy}, or put the server package under a parent package of its own"
                 ),
                 artifact_path=shown(module, self.cwd).as_posix(),
             ),

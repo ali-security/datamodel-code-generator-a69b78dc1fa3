@@ -1,2 +1,2 @@
-Error: services.py: This module of yours has the name of the services package, from which server.main imports your implementations, and Python would import only one of them: rename the module, or put the server package under a parent package of its own
+Error: services.py: This module of yours has the name of the services package, from which server.main imports your implementations: rename the module, or put the server package under a parent package of its own
 written: ['services.py']
