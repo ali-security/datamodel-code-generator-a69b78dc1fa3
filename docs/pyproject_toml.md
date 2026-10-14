@@ -28,6 +28,10 @@ field-constraints = true
 
 All CLI options can be used in `pyproject.toml` by converting them to kebab-case (e.g., `--snake-case-field` becomes `snake-case-field`).
 
+Relative `input`, `output`, `custom-template-dir`, `custom-file-header-path`, and the other file and directory paths
+in `pyproject.toml` are relative to its directory. The JSON files that model options such as `aliases`,
+`extra-template-data`, and `default-values` name are relative to the working directory, as on the command line.
+
 ## Formatter settings
 
 Formatter selection is configured with the same keys as the CLI:
