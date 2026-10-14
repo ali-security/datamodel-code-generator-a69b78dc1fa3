@@ -5,17 +5,29 @@ from __future__ import annotations
 
 from datetime import date
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, Field, conint
+from child_base import Base
+from child_checks import check_name
+from child_fields import Field
+from child_types import Note
+from pydantic import ValidationInfo, conint, field_validator
 
 
-class Level(StrEnum):
+class LevelChild(StrEnum):
     low = 'low'
     high = 'high'
 
 
-class Sample(BaseModel):
-    child_name: str = Field('guest', alias='userName')
-    level: Level
+class Level(Base):
+    child_name: str = Field('guest', alias='userName', serialization_alias='child_out')
+    level: LevelChild
     count: conint(ge=0) = 3
-    note: str | None = None
+    note: Note | None = None
+
+    @field_validator('userName', mode='before')
+    @classmethod
+    def check_name_validator(cls, v: Any, info: ValidationInfo) -> Any:
+        return check_name(v, info)
+
+# child kwargs

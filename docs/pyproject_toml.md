@@ -28,9 +28,18 @@ field-constraints = true
 
 All CLI options can be used in `pyproject.toml` by converting them to kebab-case (e.g., `--snake-case-field` becomes `snake-case-field`).
 
-Relative `input`, `output`, `custom-template-dir`, `custom-file-header-path`, and the other file and directory paths
-in `pyproject.toml` are relative to its directory. The JSON files that model options such as `aliases`,
-`extra-template-data`, and `default-values` name are relative to the working directory, as on the command line.
+On the command line, relative paths in `pyproject.toml` resolve as follows:
+
+- Relative to the `pyproject.toml` directory: `input`, `output`, `custom-template-dir`, `custom-file-header-path`,
+  `diff-against`, `emit-model-metadata`, `http-local-ref-path`, `lockfile`, `server-output`, `client-output`, and the
+  JSON files of the server and client settings.
+- Relative to the working directory: the file of `input-model`, and the JSON files of `aliases`,
+  `serialization-aliases`, `extra-template-data`, `custom-formatters-kwargs`, `default-values`, `base-class-map`,
+  `model-name-map`, `enum-field-as-literal-map`, `duplicate-name-suffix`, `import-overrides`, `type-overrides`, and
+  `validators`.
+
+`load_pyproject_config()` reads those JSON files from the `pyproject.toml` directory instead; see
+[Using as Module](using_as_module.md).
 
 ## Formatter settings
 
