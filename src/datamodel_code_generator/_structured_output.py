@@ -21,6 +21,18 @@ class GeneratedFilePayload(BaseModel):
     content: str
 
 
+_TARGET_DESCRIPTION = "The package and runtime dependencies of a server or client generation; absent for models only."
+
+
+class TargetPayload(BaseModel):
+    """The package a server or client generation renders and the requirements it needs at run time."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    package: str
+    dependencies: list[str]
+
+
 class GenerationPayload(BaseModel):
     """Structured JSON payload emitted by generation mode --output-format json."""
 
@@ -31,6 +43,7 @@ class GenerationPayload(BaseModel):
     kind: Literal["generation"]
     output: str | None
     files: list[GeneratedFilePayload]
+    target: TargetPayload | None = Field(default=None, description=_TARGET_DESCRIPTION)
 
 
 CommandOutputKind: TypeAlias = Literal[
@@ -143,6 +156,7 @@ class CheckOutputPayload(BaseModel):
     success: bool
     content: str
     differences: list[CheckDifferencePayload]
+    target: TargetPayload | None = Field(default=None, description=_TARGET_DESCRIPTION)
 
 
 class BatchJobPayload(BaseModel):
@@ -189,6 +203,11 @@ def _dump_json(value: Any) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False)
 
 
+def _dump_payload(payload: GenerationPayload | CheckOutputPayload) -> str:
+    """Dump a payload, leaving out the target of a model-only run."""
+    return _dump_json(payload.model_dump(mode="json", exclude={"target"} if payload.target is None else None))
+
+
 def _schema_with_metadata(schema: dict[str, Any], *, title: str, description: str) -> dict[str, Any]:
     schema = dict(schema)
     schema.setdefault("title", title)
@@ -196,9 +215,12 @@ def _schema_with_metadata(schema: dict[str, Any], *, title: str, description: st
     return {"$schema": JSON_SCHEMA_DRAFT_2020_12, **schema}
 
 
-def generation_output_json(files: list[GeneratedFilePayload], *, output: str | None) -> str:
-    payload = GenerationPayload(version=1, format="json", kind="generation", output=output, files=files)
-    return _dump_json(payload.model_dump(mode="json"))
+def generation_output_json(
+    files: list[GeneratedFilePayload], *, output: str | None, target: TargetPayload | None = None
+) -> str:
+    return _dump_payload(
+        GenerationPayload(version=1, format="json", kind="generation", output=output, files=files, target=target)
+    )
 
 
 def command_output_json(
@@ -252,16 +274,19 @@ def check_output_json(
     content: str,
     differences: list[CheckDifferencePayload],
     kind: Literal["check", "input-diff"] = "check",
+    target: TargetPayload | None = None,
 ) -> str:
-    payload = CheckOutputPayload(
-        version=1,
-        format="json",
-        kind=kind,
-        success=success,
-        content=content,
-        differences=differences,
+    return _dump_payload(
+        CheckOutputPayload(
+            version=1,
+            format="json",
+            kind=kind,
+            success=success,
+            content=content,
+            differences=differences,
+            target=target,
+        )
     )
-    return _dump_json(payload.model_dump(mode="json"))
 
 
 def generation_output_json_schema() -> str:
